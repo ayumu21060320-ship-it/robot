@@ -69,9 +69,15 @@ public static class RobotGameSetup
         PlayerSettings.runInBackground = true; // 2つ起動して試すとき、裏側のウィンドウも止まらないように
         AssetDatabase.SaveAssets();
 
-        EditorUtility.DisplayDialog("タイタンクルー",
-            "シーンを作成しました。\n\n" + ScenePath + "\n\n▶ 再生して「ホストとして始める」を押すと遊べます。\n" +
-            "2人で試すときは、ビルドしたものとエディタを同時に起動し、片方をホスト、もう片方を 127.0.0.1 で参加にしてください。", "OK");
+#if HAS_NETCODE
+        const string howTo = "▶ 再生して「ホストとして始める」を押すと遊べます。\n" +
+            "2人で試すときは、ビルドしたものとエディタを同時に起動し、片方をホスト、もう片方を 127.0.0.1 で参加にしてください。";
+#else
+        const string howTo = "Netcode for GameObjects が入っていないので、オフライン版（1人用）で作りました。\n" +
+            "▶ 再生して「1人で始める」を押すと遊べます。\n" +
+            "あとで Netcode が入ったら、このメニューをもう一度押すとオンライン版のシーンに作り直せます。";
+#endif
+        EditorUtility.DisplayDialog("タイタンクルー", "シーンを作成しました。\n\n" + ScenePath + "\n\n" + howTo, "OK");
     }
 
     static void EnsureFolder(string path)

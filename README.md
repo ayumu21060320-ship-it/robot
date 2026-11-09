@@ -15,6 +15,15 @@ Unity プロジェクト本体は `robot/` フォルダにあります。
    - `Assets/Game/Scenes/RobotGame.unity` ができて、開いた状態になります
 3. ▶ 再生して **ホストとして始める** を押す
 
+### Netcode が入らない場所では（オフライン版）
+
+学校のネットワークなどで `packages.unity.com` につながらず Netcode が入らないときも、そのまま開けます。
+Netcode の代わりに `Assets/Scripts/Offline/` の代役が使われ、メニューに「1人で始める」が出るオフライン版（1人用）になります。
+
+- Package Manager に Netcode のエラーが出ますが、ゲームは動きます
+- インターネットにつながる場所で開くと Netcode が自動で入り、オンライン版に切り替わります。
+  そのあと **Robot → ゲームのシーンを作成** をもう一度押してください（シーンとプレハブを作り直すため）
+
 ### 2人以上で試す
 
 - **同じPCで**：File → Build Profiles でビルドして起動し、片方で「ホストとして始める」、もう片方は アドレス `127.0.0.1` のまま「参加する」
@@ -53,5 +62,7 @@ Unity プロジェクト本体は `robot/` フォルダにあります。
 | `Assets/Scripts/Net/CrewPlayer.cs` | 操縦士1人ぶん（移動・入力・席の乗り降り） |
 | `Assets/Scripts/Visual/RobotVisual.cs` | 外のロボット・ドローン・爆発などの見た目 |
 | `Assets/Scripts/Editor/RobotGameSetup.cs` | 「Robot → ゲームのシーンを作成」メニュー |
+| `Assets/Scripts/Offline/` | Netcode が入っていないときだけ使うオフライン用の代役 |
+| `Assets/Scripts/Game.asmdef` | Netcode の有無で `HAS_NETCODE` を切り替える |
 
 見た目はまだキューブや円柱の仮組みです。モデルができたら `RobotVisual.Build` と `InteriorMap.Build` を差し替えます。
