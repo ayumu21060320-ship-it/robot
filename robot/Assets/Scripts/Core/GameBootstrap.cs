@@ -179,8 +179,7 @@ public class GameBootstrap : MonoBehaviour
     {
         if (!TryGetPort(out var port)) return;
         RegisterPrefabs();
-        var t = (UnityTransport)networkManager.NetworkConfig.NetworkTransport;
-        t.SetConnectionData("127.0.0.1", port, "0.0.0.0");
+        if (networkManager.NetworkConfig.NetworkTransport is UnityTransport t) t.SetConnectionData("127.0.0.1", port, "0.0.0.0");
         m_Status = networkManager.StartHost() ? "" : $"ホストを始められませんでした。ポート {port} がほかのアプリで使われていないか確認してください。";
     }
 
@@ -194,8 +193,7 @@ public class GameBootstrap : MonoBehaviour
             return;
         }
         RegisterPrefabs();
-        var t = (UnityTransport)networkManager.NetworkConfig.NetworkTransport;
-        t.SetConnectionData(addr, port);
+        if (networkManager.NetworkConfig.NetworkTransport is UnityTransport t) t.SetConnectionData(addr, port);
         m_Status = networkManager.StartClient() ? $"{addr}:{port} に接続しています…" : "接続を始められませんでした。";
     }
 
@@ -305,6 +303,14 @@ public class GameBootstrap : MonoBehaviour
         GUILayout.Label("巨大ロボットの中を走り回り、脚・腕・頭部砲・動力炉の席に乗り込んで、みんなで1体のロボットを動かそう。3つの敵の巣を壊せば勝ち。", m_Label);
         GUILayout.Space(12 * s);
 
+#if !HAS_NETCODE
+        // Netcode が入っていないときは、1台で遊ぶオフライン版になる
+        GUILayout.Label("<b>オフライン版</b>（1人で全部の席を操縦）", m_Label);
+        GUILayout.Label("通信用のパッケージ Netcode for GameObjects が入っていないため、オンライン協力は使えません。インターネットにつながる場所でプロジェクトを開くと自動で入り、オンライン版に切り替わります（そのあと「Robot → ゲームのシーンを作成」をもう一度押してください）。", m_Small);
+        GUILayout.Space(10 * s);
+        if (GUILayout.Button("1人で始める", m_Button, GUILayout.Width(240 * s), GUILayout.Height(44 * s))) StartHost();
+        GUILayout.Space(10 * s);
+#else
         GUILayout.Label("<b>ホストになる</b>（部屋を作る人）", m_Label);
         GUILayout.BeginHorizontal();
         GUILayout.Label("ポート", m_Label, GUILayout.Width(80 * s));
@@ -323,10 +329,15 @@ public class GameBootstrap : MonoBehaviour
         if (GUILayout.Button("参加する", m_Button, GUILayout.Width(240 * s), GUILayout.Height(40 * s))) StartClient();
         GUILayout.EndHorizontal();
         GUILayout.Space(10 * s);
+#endif
 
         if (!string.IsNullOrEmpty(m_Status)) GUILayout.Label("<color=#ffb000>" + m_Status + "</color>", m_Label);
         GUILayout.FlexibleSpace();
+#if HAS_NETCODE
         GUILayout.Label("操作：WASD / 矢印で移動　E で席に乗る・降りる　Space でアクション　Tab で内部の全体図\n同じPCで試すときはアドレス 127.0.0.1 のまま。ネット越しに遊ぶ招待コード方式（Relay）は次の段階で追加します。", m_Small);
+#else
+        GUILayout.Label("操作：WASD / 矢印で移動　E で席に乗る・降りる　Space でアクション　Tab で内部の全体図\n脚のレバーは席を降りても残るので、1人でも歩かせたまま腕や頭部砲に走れます。", m_Small);
+#endif
         GUILayout.EndArea();
     }
 
