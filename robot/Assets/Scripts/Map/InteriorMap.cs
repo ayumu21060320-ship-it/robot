@@ -42,8 +42,8 @@ public static class InteriorMap
         C(12.8f, 27.2f, 27.4f),   // 腰
         C(13.2f, 17.4f, 20.6f),   // 左もも（途中の足場）
         C(22.6f, 26.8f, 20.6f),   // 右もも
-        C(3.4f, 8.8f, 10.3f),     // 左の手のひら
-        C(31.2f, 36.6f, 10.3f),   // 右の手のひら
+        C(3.4f, 8.8f, 17.6f),     // 左の手のひら
+        C(31.2f, 36.6f, 17.6f),   // 右の手のひら
         C(12.2f, 18.6f, 4.6f),    // 左すね
         C(21.4f, 27.8f, 4.6f),    // 右すね
         C(9.0f, 18.6f, -10.8f),   // 左足
@@ -53,8 +53,8 @@ public static class InteriorMap
     public static readonly Ladder[] Ladders =
     {
         L(20f, 27.4f, 49.5f),     // 腰 → 腹 → 胸 → 首 → 頭（体の真ん中を通る）
-        L(6.2f, 10.3f, 41.5f),    // 左肩 → 上腕 → ひじ → 前腕 → 手首 → 手のひら
-        L(33.8f, 10.3f, 41.5f),   // 右肩 → 右手のひら
+        L(6.2f, 17.6f, 41.5f),    // 左肩 → 上腕 → ひじ → 前腕 → 手首 → 手のひら
+        L(33.8f, 17.6f, 41.5f),   // 右肩 → 右手のひら
         L(15.5f, -10.8f, 27.4f),  // 腰 → 左もも → ひざ → 左すね → 足首 → 左足
         L(24.5f, -10.8f, 27.4f),  // 腰 → 右足
     };
@@ -85,8 +85,8 @@ public static class InteriorMap
         ("頭", Rect.MinMaxRect(15f, 49f, 25f, 57f)), ("首", Rect.MinMaxRect(17f, 46.5f, 23f, 49f)),
         ("左肩", Rect.MinMaxRect(-2f, 37f, 10f, 49f)), ("右肩", Rect.MinMaxRect(30f, 37f, 42f, 49f)),
         ("胸", Rect.MinMaxRect(9f, 35f, 31f, 46.5f)), ("腹", Rect.MinMaxRect(14f, 31f, 26f, 35f)), ("腰", Rect.MinMaxRect(11f, 23f, 29f, 31f)),
-        ("左腕", Rect.MinMaxRect(1f, 17f, 11f, 37f)), ("右腕", Rect.MinMaxRect(29f, 17f, 39f, 37f)),
-        ("左手", Rect.MinMaxRect(0f, 2f, 13f, 17f)), ("右手", Rect.MinMaxRect(27f, 2f, 40f, 17f)),
+        ("左腕", Rect.MinMaxRect(1f, 24f, 11f, 37f)), ("右腕", Rect.MinMaxRect(29f, 24f, 39f, 37f)),
+        ("左手", Rect.MinMaxRect(0f, 10f, 11.5f, 24f)), ("右手", Rect.MinMaxRect(28.5f, 10f, 40f, 24f)),
         ("左もも", Rect.MinMaxRect(11f, 15f, 20f, 23f)), ("右もも", Rect.MinMaxRect(20f, 15f, 29f, 23f)),
         ("左すね", Rect.MinMaxRect(10f, -6f, 20f, 15f)), ("右すね", Rect.MinMaxRect(20f, -6f, 30f, 15f)),
         ("左足", Rect.MinMaxRect(7f, -13f, 20f, -6f)), ("右足", Rect.MinMaxRect(20f, -13f, 33f, -6f)),
