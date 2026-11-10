@@ -538,7 +538,7 @@ public class GameBootstrap : MonoBehaviour
         // 巨大な敵の体力：右半分（外の画面）で、敵の頭のすぐ上に出す。画面の外にいるときは右半分の上の端に出す
         if (rs.BossAlive)
         {
-            float bw = 240 * s, bh = 16 * s;
+            float bw = 130 * s, bh = 7 * s;
             float halfL = Screen.width * 0.5f;
             Vector2 center = new Vector2(Screen.width * 0.75f, 150 * s);
             bool onScreen = false;
@@ -556,14 +556,16 @@ public class GameBootstrap : MonoBehaviour
             center.x = Mathf.Clamp(center.x, halfL + bw * 0.5f + 8 * s, Screen.width - bw * 0.5f - 8 * s);
             center.y = Mathf.Clamp(center.y, 140 * s, Screen.height - 40 * s);
             var br = new Rect(center.x - bw * 0.5f, center.y - bh * 0.5f, bw, bh);
-            DrawRect(new Rect(br.x - 4 * s, br.y - 22 * s, br.width + 8 * s, br.height + 26 * s), new Color(0.06f, 0.08f, 0.1f, onScreen ? 0.7f : 0.85f));
-            GUI.Label(new Rect(br.x, br.y - 21 * s, br.width, 20 * s), onScreen ? "<b><color=#ff6aa0>巨大な敵</color></b>" : "<b><color=#ff6aa0>巨大な敵（画面の外）</color></b>", m_Small);
-            DrawBar(br, rs.BossHp.Value / RobotState.BossMaxHp, Prims.Hex("#ff3d7f"), $"{Mathf.CeilToInt(rs.BossHp.Value)} / {Mathf.CeilToInt(RobotState.BossMaxHp)}");
+            // 細いゲージだけ（文字は画面の外にいるときだけ小さく出す）
+            DrawRect(new Rect(br.x - 2 * s, br.y - 2 * s, br.width + 4 * s, br.height + 4 * s), new Color(0.04f, 0.05f, 0.06f, 0.85f));
+            DrawRect(new Rect(br.x, br.y, br.width * Mathf.Clamp01(rs.BossHp.Value / RobotState.BossMaxHp), br.height), Prims.Hex("#ff3d7f"));
+            if (!onScreen)
+                GUI.Label(new Rect(br.x, br.y - 18 * s, br.width + 40 * s, 18 * s), "<color=#ff6aa0>巨大な敵（画面の外）</color>", m_Small);
             // 振りかぶっているときは、ゲージの上に警告
             if (rs.BossAction.Value == RobotState.BossSwipe)
             {
                 var warn = new GUIStyle(m_Label) { alignment = TextAnchor.MiddleCenter };
-                GUI.Label(new Rect(center.x - 200 * s, br.y - 50 * s, 400 * s, 24 * s), "<color=#ff6a4a><b>⚠ 腕を振りかぶっている！ 離れろ</b></color>", warn);
+                GUI.Label(new Rect(center.x - 200 * s, br.y - 30 * s, 400 * s, 24 * s), "<color=#ff6a4a><b>⚠ 腕を振りかぶっている！ 離れろ</b></color>", warn);
             }
         }
 
