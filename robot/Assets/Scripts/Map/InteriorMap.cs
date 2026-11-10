@@ -81,9 +81,63 @@ public static class InteriorMap
         (new RectInt(10, 27, 20, 8), Prims.Hex(Dark)),   // 腹まわり
     };
 
+    /// <summary>
+    /// 部屋の中に置く、通れない機械や荷物（設計マスの範囲と絵の名前）。
+    /// 絵は範囲の真ん中に元の大きさで描く（crate 1x1、tanks 2x2、machine 3x2、monitors 2x1 が目安）。
+    /// </summary>
+    public static readonly (RectInt rect, string sprite)[] Obstacles =
+    {
+        // 胸（動力炉の本体も通れない）
+        (new RectInt(19, 41, 2, 2), null),
+        (new RectInt(13, 44, 2, 2), "tanks"), (new RectInt(24, 44, 3, 2), "machine"),
+        (new RectInt(27, 34, 1, 1), "crate"), (new RectInt(28, 34, 1, 1), "crate"), (new RectInt(28, 35, 1, 1), "crate"),
+        (new RectInt(11, 34, 1, 1), "crate"),
+        // 頭
+        (new RectInt(22, 56, 2, 1), "monitors"), (new RectInt(24, 50, 1, 1), "crate"),
+        // 上腕の縦穴
+        (new RectInt(8, 33, 1, 1), "crate"), (new RectInt(31, 35, 1, 1), "crate"),
+        // 腕室
+        (new RectInt(2, 23, 3, 2), "machine"), (new RectInt(9, 23, 2, 2), "tanks"),
+        (new RectInt(2, 15, 1, 1), "crate"), (new RectInt(3, 15, 1, 1), "crate"),
+        (new RectInt(35, 23, 3, 2), "machine"), (new RectInt(29, 23, 2, 2), "tanks"),
+        (new RectInt(36, 15, 1, 1), "crate"), (new RectInt(37, 15, 1, 1), "crate"),
+        // 腰
+        (new RectInt(24, 25, 3, 2), "machine"), (new RectInt(12, 22, 1, 1), "crate"), (new RectInt(27, 22, 1, 1), "crate"),
+        // もも
+        (new RectInt(17, 11, 1, 1), "crate"), (new RectInt(22, 11, 1, 1), "crate"),
+        // 脚室
+        (new RectInt(11, 5, 3, 2), "machine"), (new RectInt(17, 5, 2, 2), "tanks"),
+        (new RectInt(26, 5, 3, 2), "machine"), (new RectInt(21, 5, 2, 2), "tanks"),
+        // 足（倉庫）
+        (new RectInt(17, -8, 1, 1), "crate"), (new RectInt(18, -8, 1, 1), "crate"), (new RectInt(18, -7, 1, 1), "crate"),
+        (new RectInt(29, -8, 2, 2), "tanks"), (new RectInt(21, -8, 1, 1), "crate"), (new RectInt(22, -8, 1, 1), "crate"),
+    };
+
+    /// <summary>上を歩ける床の飾り（設計マスでの中心と大きさ、縦向きか）。</summary>
+    public static readonly (string sprite, Vector2 center, Vector2 size, bool vertical)[] FloorDecor =
+    {
+        ("pipes_h", new Vector2(20f, 34.6f), new Vector2(17f, 0.55f), false),
+        ("pipes_h", new Vector2(7.5f, 41.5f), new Vector2(6.5f, 0.55f), false),
+        ("pipes_h", new Vector2(32.5f, 41.5f), new Vector2(6.5f, 0.55f), false),
+        ("pipes_h", new Vector2(5.45f, 34f), new Vector2(13f, 0.55f), true),
+        ("pipes_h", new Vector2(34.55f, 34f), new Vector2(13f, 0.55f), true),
+        ("pipes_h", new Vector2(17.55f, 16f), new Vector2(9f, 0.55f), true),
+        ("pipes_h", new Vector2(22.45f, 16f), new Vector2(9f, 0.55f), true),
+        ("stripes", new Vector2(15.5f, 22.3f), new Vector2(5f, 0.4f), false),
+        ("stripes", new Vector2(24.5f, 22.3f), new Vector2(5f, 0.4f), false),
+        ("stripes", new Vector2(20f, 46.3f), new Vector2(4f, 0.4f), false),
+        ("grate", new Vector2(20.5f, 32.5f), new Vector2(1f, 1f), false),
+        ("grate", new Vector2(24f, 37f), new Vector2(1f, 1f), false),
+        ("grate", new Vector2(12.5f, -2.5f), new Vector2(1f, 1f), false),
+        ("grate", new Vector2(27.5f, -2.5f), new Vector2(1f, 1f), false),
+        ("grate", new Vector2(6.5f, 25.5f), new Vector2(1f, 1f), false),
+        ("grate", new Vector2(33.5f, 25.5f), new Vector2(1f, 1f), false),
+    };
+
     // 歩ける場所の表（設計マス単位）。範囲は Areas から自動で決める
     static int GX0, GZ0, GW, GH;
-    static bool[,] s_Grid;
+    static bool[,] s_Grid;   // 部屋や通路（壁はこの境目に立つ）
+    static bool[,] s_Block;  // 部屋の中の障害物
 
     static void EnsureGrid()
     {
@@ -100,6 +154,11 @@ public static class InteriorMap
             for (int x = a.Rect.xMin; x < a.Rect.xMax; x++)
                 for (int z = a.Rect.yMin; z < a.Rect.yMax; z++)
                     s_Grid[x - GX0, z - GZ0] = true;
+        s_Block = new bool[GW, GH];
+        foreach (var (rect, _) in Obstacles)
+            for (int x = rect.xMin; x < rect.xMax; x++)
+                for (int z = rect.yMin; z < rect.yMax; z++)
+                    s_Block[x - GX0, z - GZ0] = true;
     }
 
     /// <summary>装甲も含めたロボット全体の範囲（メートル）。ミニマップと重なり順に使う。</summary>
@@ -123,7 +182,18 @@ public static class InteriorMap
         return s_Grid[gx, gz];
     }
 
-    public static bool Walkable(Vector2 p) => Cell(Mathf.FloorToInt(p.x / Scale), Mathf.FloorToInt(p.y / Scale));
+    static bool Blocked(int x, int z)
+    {
+        EnsureGrid();
+        int gx = x - GX0, gz = z - GZ0;
+        return gx >= 0 && gz >= 0 && gx < GW && gz < GH && s_Block[gx, gz];
+    }
+
+    public static bool Walkable(Vector2 p)
+    {
+        int x = Mathf.FloorToInt(p.x / Scale), z = Mathf.FloorToInt(p.y / Scale);
+        return Cell(x, z) && !Blocked(x, z);
+    }
 
     public static bool CanStand(Vector2 p, float r) =>
         Walkable(p + new Vector2(r, r)) && Walkable(p + new Vector2(-r, r)) &&
@@ -179,6 +249,7 @@ public static class InteriorMap
         public SpriteRenderer[] Pads = new SpriteRenderer[Stations.Count];
         public SpriteRenderer[] Fires = new SpriteRenderer[Stations.Count];
         public SpriteRenderer ReactorCore;
+        public SpriteRenderer[] TaskAlerts = new SpriteRenderer[Tasks.Count];
     }
 
     /// <summary>動力炉の本体の位置（メートル）</summary>
@@ -204,6 +275,7 @@ public static class InteriorMap
 
         BuildArmor(root);
         BuildWalls(root);
+        BuildProps(root, v);
 
         // 操作盤と立ち位置
         for (int i = 0; i < Stations.Count; i++)
@@ -228,6 +300,40 @@ public static class InteriorMap
         v.ReactorCore = Art.Place(root, "reactor_core", new Vector3(ReactorPos.x, 0.02f, ReactorPos.y), ro + 1, Prims.Hex("#ffd23f"), "動力炉 芯");
 
         return v;
+    }
+
+    /// <summary>床の飾り、障害物（機械や荷物）、整備タスクの装置を置く。</summary>
+    static void BuildProps(Transform root, View v)
+    {
+        foreach (var (sprite, center, size, vertical) in FloorDecor)
+        {
+            var c = center * Scale;
+            var sz = size * Scale;
+            if (sprite == "pipes_h") sz.y = 0.75f;      // 配管の太さは絵のまま
+            if (sprite == "stripes") sz.y = 0.5f;
+            var r = sprite == "grate"
+                ? Art.Place(root, sprite, new Vector3(c.x, 0.01f, c.y), Art.OrderPad - 1)
+                : Art.Tiled(root, sprite, new Vector3(c.x, 0.01f, c.y), sz, Art.OrderPad - 1);
+            if (vertical) r.transform.localRotation = Quaternion.Euler(90f, 90f, 0f);
+        }
+
+        foreach (var (rect, sprite) in Obstacles)
+        {
+            if (sprite == null) continue;
+            var c = new Vector2(rect.center.x, rect.center.y) * Scale;
+            float bottom = rect.yMin * Scale;
+            Art.Place(root, sprite, new Vector3(c.x, 0.02f, c.y), Art.DepthOrder(bottom), null, sprite);
+        }
+
+        for (int i = 0; i < Tasks.Count; i++)
+        {
+            var t = Tasks.All[i];
+            var p = t.Pos + t.PanelOffset;
+            Art.Place(root, Tasks.SpriteFor(t.Kind), new Vector3(p.x, 0.02f, p.y), Art.DepthOrder(p.y - 0.6f), null, t.Name);
+            var alert = Art.Place(root, "alert", new Vector3(p.x, 0.03f, p.y + 1.1f), Art.OrderObjects + 5000, null, t.Name + " 故障");
+            alert.gameObject.SetActive(false);
+            v.TaskAlerts[i] = alert;
+        }
     }
 
     /// <summary>

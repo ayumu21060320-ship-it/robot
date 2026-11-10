@@ -29,6 +29,8 @@ public class CrewPlayer : NetworkBehaviour
     public Vector2 DisplayPos { get; private set; }
     /// <summary>本人の近くにある席（なければ -1）。HUD の案内表示に使う。</summary>
     public int NearStation { get; private set; } = -1;
+    /// <summary>本人の近くにある整備タスク（なければ -1）。</summary>
+    public int NearTask { get; private set; } = -1;
     public Color Color => Colors[Mathf.Clamp(Slot.Value, 0, Colors.Length - 1)];
     public string Label => "P" + (Slot.Value + 1);
 
@@ -155,16 +157,30 @@ public class CrewPlayer : NetworkBehaviour
         bool playing = robot != null && robot.GameState.Value == RobotState.Playing;
         int st = Station.Value;
 
+        // ミニゲーム中は歩かない（ミニゲームの操作は TaskUI が読む）
+        if (TaskUI.IsOpen)
+        {
+            if (Stick.Value != Vector2.zero) Stick.Value = Vector2.zero;
+            if (ActHeld.Value) ActHeld.Value = false;
+            return;
+        }
+        if (TaskUI.ClosedFrame == Time.frameCount) use = actPressed = false;
+
         if (st < 0)
         {
             Pos.Value = InteriorMap.Move(Pos.Value, mv * Speed * Time.deltaTime, Radius);
             if (Stick.Value != Vector2.zero) Stick.Value = Vector2.zero;
             NearStation = InteriorMap.NearestStation(Pos.Value, UseRange);
+            NearTask = NearStation < 0 ? Tasks.Nearest(Pos.Value, UseRange) : -1;
             if (robot != null && NearStation >= 0 && robot.FireHp.Count == Stations.Count)
             {
                 bool onFire = robot.FireHp[NearStation] > 0;
                 if (onFire && (actPressed || use)) robot.RepairRpc(NearStation);
                 else if (!onFire && use && playing) robot.RequestStationRpc(NearStation);
+            }
+            else if (robot != null && NearTask >= 0 && playing && !robot.TaskOk(NearTask) && (use || actPressed))
+            {
+                TaskUI.Instance.Open(NearTask);
             }
         }
         else
@@ -173,6 +189,7 @@ public class CrewPlayer : NetworkBehaviour
             if (Pos.Value != sp) Pos.Value = sp;
             if (Stick.Value != mv) Stick.Value = mv;
             NearStation = st;
+            NearTask = -1;
             if (use && robot != null) robot.LeaveStationRpc();
         }
 
