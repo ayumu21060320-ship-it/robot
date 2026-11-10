@@ -261,6 +261,42 @@ def shadow():
     return img.filter(ImageFilter.GaussianBlur(2))
 
 
+def gear():
+    """関節の歯車（3m）。"""
+    S = 192
+    img = canvas(S, S)
+    d = ImageDraw.Draw(img)
+    c = S / 2
+    teeth = 12
+    pts = []
+    for i in range(teeth * 4):
+        a = i / (teeth * 4) * math.tau
+        r = 88 if (i % 4) in (1, 2) else 72
+        pts.append((c + math.cos(a) * r, c + math.sin(a) * r))
+    poly(d, pts, fill=(120, 132, 144, 255), outline=INK, width=5)
+    ell(d, (c - 58, c - 58, c + 58, c + 58), fill=(150, 162, 174, 255), outline=(70, 80, 90, 255), width=3)
+    for i in range(6):
+        a = i / 6 * math.tau
+        x, y = c + math.cos(a) * 36, c + math.sin(a) * 36
+        ell(d, (x - 9, y - 9, x + 9, y + 9), fill=(70, 80, 90, 255))
+    ell(d, (c - 20, c - 20, c + 20, c + 20), fill=(255, 190, 40, 255), outline=INK, width=4)
+    ell(d, (c - 7, c - 7, c + 7, c + 7), fill=INK)
+    return finish(img)
+
+
+def piston():
+    """縦向きの油圧ピストン（幅1m）。上下 24px は伸ばさない（Unity 側で9スライス）。"""
+    W, H = 64, 192
+    img = canvas(W, H)
+    d = ImageDraw.Draw(img)
+    rr(d, (14, 4, W - 14, 22), 5, fill=(255, 190, 40, 255), outline=INK, width=4)
+    rr(d, (24, 18, W - 24, 100), 4, fill=(214, 222, 228, 255), outline=INK, width=4)
+    rr(d, (12, 92, W - 12, H - 20), 8, fill=(96, 108, 120, 255), outline=INK, width=5)
+    rr(d, (18, 100, 26, H - 30), 3, fill=(140, 152, 164, 255))
+    rr(d, (14, H - 22, W - 14, H - 4), 5, fill=(255, 190, 40, 255), outline=INK, width=4)
+    return finish(img)
+
+
 def white():
     return Image.new("RGBA", (8, 8), (255, 255, 255, 255))
 
@@ -284,6 +320,8 @@ def build():
     out["pad"] = pad()
     out["shadow"] = shadow()
     out["white"] = white()
+    out["gear"] = gear()
+    out["piston"] = piston()
     for name, img in out.items():
         img.save(os.path.join(OUT, name + ".png"))
     return out

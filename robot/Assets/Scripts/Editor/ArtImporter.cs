@@ -31,7 +31,9 @@ public class ArtImporter : AssetPostprocessor
         settings.spriteAlignment = (int)SpriteAlignment.Center;
         ti.SetTextureSettings(settings);
 
-        ti.spriteBorder = name == "wall_cap" ? new Vector4(8, 8, 8, 8) : Vector4.zero;
+        ti.spriteBorder = name == "wall_cap" ? new Vector4(8, 8, 8, 8)
+                        : name == "piston" ? new Vector4(0, 24, 0, 24)
+                        : Vector4.zero;
     }
 
     [MenuItem("Robot/イラストを読み込み直す")]

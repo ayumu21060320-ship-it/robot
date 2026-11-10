@@ -30,7 +30,7 @@ public static class Art
                 Debug.LogWarning($"Art/{name}.png が見つかりません。白い四角で代わりに表示します。");
                 tex = Texture2D.whiteTexture;
             }
-            var border = name == "wall_cap" ? new Vector4(8, 8, 8, 8) : Vector4.zero;
+            var border = name == "wall_cap" ? new Vector4(8, 8, 8, 8) : name == "piston" ? new Vector4(0, 24, 0, 24) : Vector4.zero;
             s = Sprite.Create(tex, new Rect(0, 0, tex.width, tex.height), new Vector2(0.5f, 0.5f), PixelsPerUnit, 0, SpriteMeshType.FullRect, border);
         }
         s_Cache[name] = s;
@@ -69,6 +69,10 @@ public static class Art
         r.size = size;
         return r;
     }
+
+    /// <summary>単色の長方形（装甲など）。r はメートル単位の範囲（x と、y = 画面の上方向）。</summary>
+    public static SpriteRenderer Box(Transform parent, Rect r, float height, int order, Color color, string name = null)
+        => Sliced(parent, "white", new Vector3(r.center.x, height, r.center.y), r.size, order, color, name);
 
     /// <summary>画面の下（z が小さい）ほど手前に描く。baseZ は物の足元の位置。</summary>
     public static int DepthOrder(float baseZ) => OrderObjects + Mathf.RoundToInt((InteriorMap.Bounds.yMax - baseZ) * 10f);
