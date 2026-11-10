@@ -71,6 +71,7 @@ Unity プロジェクト本体は `robot/` フォルダにあります。
 | `Assets/Scripts/Core/Stations.cs` | 6つの操縦席の定義（名前・位置・種類） |
 | `Assets/Scripts/Core/Tasks.cs` | 整備タスクの定義（場所・ミニゲームの種類・壊れたときの効果） |
 | `Assets/Scripts/Core/TaskUI.cs` | 整備タスクのミニゲーム |
+| `tools/art/robot_layers.py` | ロボット全体の形（角ばったメカの輪郭）と、その内側の機械を3枚の大きな絵として描く。足場とはしごが体の中に収まっているかも確かめる（numpy・scipy・Pillow が必要） |
 | `Assets/Scripts/Map/InteriorMap.cs` | ロボット内部の部屋と通路、歩ける場所の判定、内部の見た目 |
 | `Assets/Scripts/Map/ExteriorWorld.cs` | 外の世界（地面・ビル・敵の巣） |
 | `Assets/Scripts/Net/RobotState.cs` | ロボットの状態とゲームの判定（ホストが計算して全員に配る） |

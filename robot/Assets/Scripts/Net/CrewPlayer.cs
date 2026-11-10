@@ -155,9 +155,11 @@ public class CrewPlayer : NetworkBehaviour
             if (li >= 0) { m_Ladder = li; m_FallSpeed = 0f; p.x = InteriorMap.Ladders[li].X; return p; }
         }
 
-        // 左右に歩く（体の中の空洞から出ないように）
+        // 左右に歩く（今いる足場の端から先へは出ない）
+        int cw = InteriorMap.CatwalkAt(p.x, p.y);
         float nx = p.x + mv.x * Speed * dt;
-        if (InteriorMap.InCavity(nx + Mathf.Sign(mv.x) * Radius, p.y)) p.x = nx;
+        if (cw >= 0) nx = Mathf.Clamp(nx, InteriorMap.Catwalks[cw].X0 + Radius, InteriorMap.Catwalks[cw].X1 - Radius);
+        p.x = nx;
 
         // 重力
         if (InteriorMap.OnFloor(p.x, p.y, 0.01f, out float floor)) { p.y = floor; m_FallSpeed = 0f; }
