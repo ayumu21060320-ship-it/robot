@@ -348,9 +348,9 @@ public class GameBootstrap : MonoBehaviour
         if (!string.IsNullOrEmpty(m_Status)) GUILayout.Label("<color=#ffb000>" + m_Status + "</color>", m_Label);
         GUILayout.FlexibleSpace();
 #if HAS_NETCODE
-        GUILayout.Label("操作：WASD / 矢印で移動　E で席に乗る・降りる　Space でアクション　Tab で内部の全体図\n同じPCで試すときはアドレス 127.0.0.1 のまま。ネット越しに遊ぶ招待コード方式（Relay）は次の段階で追加します。", m_Small);
+        GUILayout.Label("操作：A/D で足場を歩く　はしごの前で W/S で登り降り　E で席に乗る・降りる　Space でアクション　Tab で内部の全体図\n同じPCで試すときはアドレス 127.0.0.1 のまま。ネット越しに遊ぶ招待コード方式（Relay）は次の段階で追加します。", m_Small);
 #else
-        GUILayout.Label("操作：WASD / 矢印で移動　E で席に乗る・降りる　Space でアクション　Tab で内部の全体図", m_Small);
+        GUILayout.Label("操作：A/D で足場を歩く　はしごの前で W/S で登り降り　E で席に乗る・降りる　Space でアクション　Tab で内部の全体図", m_Small);
 #endif
         GUILayout.EndArea();
     }
@@ -473,6 +473,17 @@ public class GameBootstrap : MonoBehaviour
         DrawRect(new Rect(view.x, view.y, t, view.height), line);
         DrawRect(new Rect(view.xMax - t, view.y, t, view.height), line);
 
+        // 足場とはしご
+        foreach (var c in InteriorMap.Catwalks)
+        {
+            var a0 = ToMap(new Vector2(c.X0, c.Y)); var a1 = ToMap(new Vector2(c.X1, c.Y));
+            DrawRect(new Rect(a0.x, a0.y - 1f, a1.x - a0.x, Mathf.Max(2f, 2f * s)), new Color(0.75f, 0.8f, 0.85f, 0.9f));
+        }
+        foreach (var l in InteriorMap.Ladders)
+        {
+            var b0 = ToMap(new Vector2(l.X, l.Y1)); var b1 = ToMap(new Vector2(l.X, l.Y0));
+            DrawRect(new Rect(b0.x - 1f, b0.y, Mathf.Max(2f, 2f * s), b1.y - b0.y), new Color(0.95f, 0.71f, 0.19f, 0.9f));
+        }
         if (rs != null && Mathf.Sin(Time.time * 8f) > -0.3f)
         {
             for (int i = 0; i < Tasks.Count; i++)
@@ -601,7 +612,7 @@ public class GameBootstrap : MonoBehaviour
         else
         {
             where = InteriorMap.AreaName(me.Pos.Value);
-            hint = rs.TasksBroken > 0 ? "WASD で移動。故障した装置（赤い ！）を直そう" : "WASD で移動。光っている操作盤に近づこう";
+            hint = rs.TasksBroken > 0 ? "A/D で歩く・はしごは W/S。故障した装置（赤い ！）を直そう" : "A/D で歩く・はしごは W/S。光っている席に近づこう";
         }
         float w = Mathf.Min(Screen.width * 0.5f - 24 * s, 520 * s), h = 76 * s;
         var r = new Rect(12 * s, Screen.height - h - 12 * s, w, h);

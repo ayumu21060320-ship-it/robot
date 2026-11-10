@@ -11,7 +11,7 @@ public struct TaskDef
     public TaskKind Kind;
     /// <summary>作業するときに立つ位置（メートル）</summary>
     public Vector2 Pos;
-    /// <summary>装置の絵を置くずれ（メートル）。たいてい近くの壁のほう</summary>
+    /// <summary>装置の絵を置くずれ（メートル）。足場の上、立ち位置の後ろの壁ぎわ</summary>
     public Vector2 PanelOffset;
     /// <summary>壊れているあいだに起きること（画面の一覧に出す）</summary>
     public string Effect;
@@ -31,15 +31,15 @@ public static class Tasks
 
     public static readonly TaskDef[] All =
     {
-        new TaskDef { Name = "冷却バルブ",     Room = "胸",     Kind = TaskKind.Valve, Pos = P(12.6f, 40f),   PanelOffset = new Vector2(-1.2f, 0f),  Effect = "動力が早く減る" },
-        new TaskDef { Name = "左腕の配線",     Room = "左肩",   Kind = TaskKind.Wires, Pos = P(7f, 43.2f),    PanelOffset = new Vector2(0f, 1.2f),   Effect = "左腕のパンチが遅い" },
-        new TaskDef { Name = "右腕の配線",     Room = "右肩",   Kind = TaskKind.Wires, Pos = P(33f, 43.2f),   PanelOffset = new Vector2(0f, 1.2f),   Effect = "右腕のパンチが遅い" },
-        new TaskDef { Name = "左脚の油圧",     Room = "左もも", Kind = TaskKind.Gauge, Pos = P(14.4f, 15f),   PanelOffset = new Vector2(-1.2f, 0f),  Effect = "左脚が全力で動かない" },
-        new TaskDef { Name = "右脚の油圧",     Room = "右もも", Kind = TaskKind.Gauge, Pos = P(25.6f, 15f),   PanelOffset = new Vector2(1.2f, 0f),   Effect = "右脚が全力で動かない" },
-        new TaskDef { Name = "ヒューズ",       Room = "腰",     Kind = TaskKind.Fuse,  Pos = P(14f, 26.6f),   PanelOffset = new Vector2(0f, 1.2f),   Effect = "頭部砲が撃てない" },
-        new TaskDef { Name = "照準の調整",     Room = "頭",     Kind = TaskKind.Scope, Pos = P(16.4f, 52f),   PanelOffset = new Vector2(-1.2f, 0f),  Effect = "砲撃が狙いからずれる" },
-        new TaskDef { Name = "排熱ダクト",     Room = "腹",     Kind = TaskKind.Vent,  Pos = P(18f, 31f),     PanelOffset = new Vector2(-1.0f, 0f),  Effect = "装甲がじわじわ減る" },
-        new TaskDef { Name = "姿勢制御ジャイロ", Room = "左足", Kind = TaskKind.Gyro,  Pos = P(12f, -6.2f),   PanelOffset = new Vector2(0f, -1.1f),  Effect = "歩くとふらついて曲がる" },
+        new TaskDef { Name = "冷却バルブ",     Room = "胸",     Kind = TaskKind.Valve, Pos = P(12.2f, 40.6f),   PanelOffset = new Vector2(0f, 1.05f),  Effect = "動力が早く減る" },
+        new TaskDef { Name = "左腕の配線",     Room = "左肩",   Kind = TaskKind.Wires, Pos = P(5.5f, 40.6f),    PanelOffset = new Vector2(0f, 1.05f),   Effect = "左腕のパンチが遅い" },
+        new TaskDef { Name = "右腕の配線",     Room = "右肩",   Kind = TaskKind.Wires, Pos = P(34.5f, 40.6f),   PanelOffset = new Vector2(0f, 1.05f),   Effect = "右腕のパンチが遅い" },
+        new TaskDef { Name = "左脚の油圧",     Room = "左もも", Kind = TaskKind.Gauge, Pos = P(17f, 14.5f),   PanelOffset = new Vector2(0f, 1.05f),  Effect = "左脚が全力で動かない" },
+        new TaskDef { Name = "右脚の油圧",     Room = "右もも", Kind = TaskKind.Gauge, Pos = P(23f, 14.5f),   PanelOffset = new Vector2(0f, 1.05f),   Effect = "右脚が全力で動かない" },
+        new TaskDef { Name = "ヒューズ",       Room = "腰",     Kind = TaskKind.Fuse,  Pos = P(26f, 22.4f),   PanelOffset = new Vector2(0f, 1.05f),   Effect = "頭部砲が撃てない" },
+        new TaskDef { Name = "照準の調整",     Room = "頭",     Kind = TaskKind.Scope, Pos = P(16.5f, 50.4f),   PanelOffset = new Vector2(0f, 1.05f),  Effect = "砲撃が狙いからずれる" },
+        new TaskDef { Name = "排熱ダクト",     Room = "腰",     Kind = TaskKind.Vent,  Pos = P(14.2f, 22.4f),     PanelOffset = new Vector2(0f, 1.05f),  Effect = "装甲がじわじわ減る" },
+        new TaskDef { Name = "姿勢制御ジャイロ", Room = "左足", Kind = TaskKind.Gyro,  Pos = P(11f, -7.6f),   PanelOffset = new Vector2(0f, 1.05f),  Effect = "歩くとふらついて曲がる" },
     };
 
     public static string SpriteFor(TaskKind k) => k switch

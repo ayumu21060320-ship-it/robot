@@ -1,36 +1,30 @@
+using System.Collections.Generic;
 using UnityEngine;
 
 /// <summary>
-/// 巨大ロボットの内部マップ。人型ロボットの断面図のように、頭・肩・腕・胸・腰・脚の形に沿って
-/// 部屋と通路（長方形）を並べ、そこから「歩ける場所」の判定と見た目を作る。
-/// まわりにはロボットの装甲の外形を描く。
-/// 内部は外の世界から遠く離れた場所（Origin）に置き、真上からのカメラで映す。
+/// 巨大ロボットの内部マップ。人型ロボットを<b>横から見た断面図</b>として作る。
 ///
-///                 [頭部 操縦室]
-///                      |
-///   [左肩]======[  胸部 動力炉室  ]======[右肩]
-///     ||               |                 ||
-///   左上腕           腹の通路           右上腕
-///     ||          [  腰のホール  ]        ||
-///   [左腕室]        ||        ||        [右腕室]
-///                左もも      右もも
-///               [左脚室]    [右脚室]
-///               [ 左足 ]    [ 右足 ]
+/// - 体の中の空洞（Areas）は、頭・肩・腕・胸・腰・脚の形に並んでいる
+/// - 操縦士は<b>足場（Catwalks）</b>の上を左右に歩き、<b>はしご（Ladders）</b>で上下に移動する。重力がある
+/// - 見た目は3つの層に分かれている
+///     奥　　：骨組み・小さな歯車・油圧シリンダー・フレームに沿ったケーブル（もやを掛けて薄くする）
+///     中　　：足場・はしご・操作盤・整備装置・操縦士（はっきりした色）
+///     手前　：垂れ下がったケーブル（濃い色。操縦士より手前）
+///
+/// 内部は外の世界から遠く離れた場所（Origin）に置き、正面から見るカメラで映す
+/// （スプライトは寝かせて置き、カメラは真上から見下ろしているので、画面の上 = z の正の向き）。
 /// </summary>
 public static class InteriorMap
 {
     public static readonly Vector3 Origin = new Vector3(2000f, 0f, 0f);
 
     /// <summary>
-    /// 内部の広さの倍率。部屋の配置（Areas）は「設計マス」で書き、実際の大きさ（メートル）はこれを掛けたもの。
-    /// 巨大ロボットらしく広くしたいときはこの数字を上げる。
+    /// 内部の広さの倍率。空洞・足場・はしごは「設計マス」で書き、実際の大きさ（メートル）はこれを掛けたもの。
     /// </summary>
     public const float Scale = 1.3f;
 
-    /// <summary>装甲が部屋からはみ出す幅（設計マス）</summary>
+    /// <summary>装甲が空洞からはみ出す幅（設計マス）</summary>
     const float ArmorMargin = 1.6f;
-
-    public static readonly Vector2 Spawn = new Vector2(15f, 38f) * Scale;
 
     /// <summary>部屋や通路。座標は設計マス（実際の大きさは Scale 倍）。</summary>
     public struct Area
@@ -57,7 +51,7 @@ public static class InteriorMap
     public static readonly Area[] Areas =
     {
         new Area("頭部 操縦室",   15, 50, 10,  8, "#aac8c0", White),
-        new Area("首の通路",      18, 46,  4,  4, Shaft,     Dark),
+        new Area("首",            18, 46,  4,  4, Shaft,     Dark),
         new Area("胸部 動力炉室", 11, 34, 18, 12, "#d2c896", Red),
         new Area("左肩の通路",     4, 41,  7,  4, Shaft,     Yellow),
         new Area("右肩の通路",    29, 41,  7,  4, Shaft,     Yellow),
@@ -81,63 +75,52 @@ public static class InteriorMap
         (new RectInt(10, 27, 20, 8), Prims.Hex(Dark)),   // 腹まわり
     };
 
-    /// <summary>
-    /// 部屋の中に置く、通れない機械や荷物（設計マスの範囲と絵の名前）。
-    /// 絵は範囲の真ん中に元の大きさで描く（crate 1x1、tanks 2x2、machine 3x2、monitors 2x1 が目安）。
-    /// </summary>
-    public static readonly (RectInt rect, string sprite)[] Obstacles =
+    // ------------------------------------------------------------------ 足場とはしご
+
+    /// <summary>足場。x0～x1 の範囲に、高さ y の床がある（メートル）。</summary>
+    public struct Catwalk { public float X0, X1, Y; }
+    /// <summary>はしご。x の位置に、y0（下の床）から y1（上の床）まで（メートル）。</summary>
+    public struct Ladder { public float X, Y0, Y1; }
+
+    static Catwalk C(float x0, float x1, float y) => new Catwalk { X0 = x0 * Scale, X1 = x1 * Scale, Y = y * Scale };
+    static Ladder L(float x, float y0, float y1) => new Ladder { X = x * Scale, Y0 = y0 * Scale, Y1 = y1 * Scale };
+
+    public static readonly Catwalk[] Catwalks =
     {
-        // 胸（動力炉の本体も通れない）
-        (new RectInt(19, 41, 2, 2), null),
-        (new RectInt(13, 44, 2, 2), "tanks"), (new RectInt(24, 44, 3, 2), "machine"),
-        (new RectInt(27, 34, 1, 1), "crate"), (new RectInt(28, 34, 1, 1), "crate"), (new RectInt(28, 35, 1, 1), "crate"),
-        (new RectInt(11, 34, 1, 1), "crate"),
-        // 頭
-        (new RectInt(22, 56, 2, 1), "monitors"), (new RectInt(24, 50, 1, 1), "crate"),
-        // 上腕の縦穴
-        (new RectInt(8, 33, 1, 1), "crate"), (new RectInt(31, 35, 1, 1), "crate"),
-        // 腕室
-        (new RectInt(2, 23, 3, 2), "machine"), (new RectInt(9, 23, 2, 2), "tanks"),
-        (new RectInt(2, 15, 1, 1), "crate"), (new RectInt(3, 15, 1, 1), "crate"),
-        (new RectInt(35, 23, 3, 2), "machine"), (new RectInt(29, 23, 2, 2), "tanks"),
-        (new RectInt(36, 15, 1, 1), "crate"), (new RectInt(37, 15, 1, 1), "crate"),
-        // 腰
-        (new RectInt(24, 25, 3, 2), "machine"), (new RectInt(12, 22, 1, 1), "crate"), (new RectInt(27, 22, 1, 1), "crate"),
-        // もも
-        (new RectInt(17, 11, 1, 1), "crate"), (new RectInt(22, 11, 1, 1), "crate"),
-        // 脚室
-        (new RectInt(11, 5, 3, 2), "machine"), (new RectInt(17, 5, 2, 2), "tanks"),
-        (new RectInt(26, 5, 3, 2), "machine"), (new RectInt(21, 5, 2, 2), "tanks"),
-        // 足（倉庫）
-        (new RectInt(17, -8, 1, 1), "crate"), (new RectInt(18, -8, 1, 1), "crate"), (new RectInt(18, -7, 1, 1), "crate"),
-        (new RectInt(29, -8, 2, 2), "tanks"), (new RectInt(21, -8, 1, 1), "crate"), (new RectInt(22, -8, 1, 1), "crate"),
+        C(15f, 25f, 50.4f),   // 頭
+        C(4f, 36f, 40.6f),    // 肩から胸の上の段
+        C(11f, 29f, 34.4f),   // 胸の下の段（動力炉）
+        C(2f, 11f, 15.4f),    // 左腕室
+        C(29f, 38f, 15.4f),   // 右腕室
+        C(12f, 28f, 22.4f),   // 腰
+        C(13f, 18f, 14.5f),   // 左もも（途中の足場）
+        C(22f, 27f, 14.5f),   // 右もも
+        C(11f, 19f, -3.6f),   // 左脚室
+        C(21f, 29f, -3.6f),   // 右脚室
+        C(9f, 19f, -7.6f),    // 左足
+        C(21f, 31f, -7.6f),   // 右足
     };
 
-    /// <summary>上を歩ける床の飾り（設計マスでの中心と大きさ、縦向きか）。</summary>
-    public static readonly (string sprite, Vector2 center, Vector2 size, bool vertical)[] FloorDecor =
+    public static readonly Ladder[] Ladders =
     {
-        ("pipes_h", new Vector2(20f, 34.6f), new Vector2(17f, 0.55f), false),
-        ("pipes_h", new Vector2(7.5f, 41.5f), new Vector2(6.5f, 0.55f), false),
-        ("pipes_h", new Vector2(32.5f, 41.5f), new Vector2(6.5f, 0.55f), false),
-        ("pipes_h", new Vector2(5.45f, 34f), new Vector2(13f, 0.55f), true),
-        ("pipes_h", new Vector2(34.55f, 34f), new Vector2(13f, 0.55f), true),
-        ("pipes_h", new Vector2(17.55f, 16f), new Vector2(9f, 0.55f), true),
-        ("pipes_h", new Vector2(22.45f, 16f), new Vector2(9f, 0.55f), true),
-        ("stripes", new Vector2(15.5f, 22.3f), new Vector2(5f, 0.4f), false),
-        ("stripes", new Vector2(24.5f, 22.3f), new Vector2(5f, 0.4f), false),
-        ("stripes", new Vector2(20f, 46.3f), new Vector2(4f, 0.4f), false),
-        ("grate", new Vector2(20.5f, 32.5f), new Vector2(1f, 1f), false),
-        ("grate", new Vector2(24f, 37f), new Vector2(1f, 1f), false),
-        ("grate", new Vector2(12.5f, -2.5f), new Vector2(1f, 1f), false),
-        ("grate", new Vector2(27.5f, -2.5f), new Vector2(1f, 1f), false),
-        ("grate", new Vector2(6.5f, 25.5f), new Vector2(1f, 1f), false),
-        ("grate", new Vector2(33.5f, 25.5f), new Vector2(1f, 1f), false),
+        L(20f, 22.4f, 50.4f),   // 腰 → 胸 → 首 → 頭（体の真ん中を通る）
+        L(7f, 15.4f, 40.6f),    // 左肩 → 左腕室
+        L(33f, 15.4f, 40.6f),   // 右肩 → 右腕室
+        L(15.5f, -3.6f, 22.4f), // 腰 → 左もも → 左脚室
+        L(24.5f, -3.6f, 22.4f), // 腰 → 右もも → 右脚室
+        L(17.5f, -7.6f, -3.6f), // 左脚室 → 左足
+        L(22.5f, -7.6f, -3.6f), // 右脚室 → 右足
     };
 
-    // 歩ける場所の表（設計マス単位）。範囲は Areas から自動で決める
+    public static readonly Vector2 Spawn = new Vector2(24f, 34.4f) * Scale;
+
+    /// <summary>動力炉の本体の位置（足元、メートル）</summary>
+    public static readonly Vector2 ReactorPos = new Vector2(17f, 34.4f) * Scale;
+
+    // ------------------------------------------------------------------ 空洞の表
+
     static int GX0, GZ0, GW, GH;
-    static bool[,] s_Grid;   // 部屋や通路（壁はこの境目に立つ）
-    static bool[,] s_Block;  // 部屋の中の障害物
+    static bool[,] s_Grid;
 
     static void EnsureGrid()
     {
@@ -154,26 +137,23 @@ public static class InteriorMap
             for (int x = a.Rect.xMin; x < a.Rect.xMax; x++)
                 for (int z = a.Rect.yMin; z < a.Rect.yMax; z++)
                     s_Grid[x - GX0, z - GZ0] = true;
-        s_Block = new bool[GW, GH];
-        foreach (var (rect, _) in Obstacles)
-            for (int x = rect.xMin; x < rect.xMax; x++)
-                for (int z = rect.yMin; z < rect.yMax; z++)
-                    s_Block[x - GX0, z - GZ0] = true;
     }
 
-    /// <summary>装甲も含めたロボット全体の範囲（メートル）。ミニマップと重なり順に使う。</summary>
+    /// <summary>装甲も含めたロボット全体の範囲（メートル）。ミニマップに使う。</summary>
     public static Rect Bounds
     {
         get
         {
             EnsureGrid();
             float m = ArmorMargin + 0.5f;
-            return Rect.MinMaxRect((GX0 + 1 - m) * Scale, (GZ0 + 1 - m) * Scale, (GX0 + GW - 1 + m) * Scale, (GZ0 + GH - 1 + m) * Scale);
+            // 手やブーツは空洞より外にはみ出すので、下は多めにとる
+            return Rect.MinMaxRect((GX0 + 1 - m) * Scale, (GZ0 + 1 - m - 3f) * Scale, (GX0 + GW - 1 + m) * Scale, (GZ0 + GH - 1 + m) * Scale);
         }
     }
 
     public static Vector2 Center => Bounds.center;
 
+    /// <summary>設計マス (x, z) が体の中の空洞か</summary>
     public static bool Cell(int x, int z)
     {
         EnsureGrid();
@@ -182,33 +162,38 @@ public static class InteriorMap
         return s_Grid[gx, gz];
     }
 
-    static bool Blocked(int x, int z)
+    /// <summary>足元が y の人が、横位置 x に立てるか（体の高さのところが空洞か）</summary>
+    public static bool InCavity(float x, float y) => Cell(Mathf.FloorToInt(x / Scale), Mathf.FloorToInt((y + 0.6f) / Scale));
+
+    /// <summary>足元 (x, y) のすぐ下に足場があるか</summary>
+    public static bool OnFloor(float x, float y, float tolerance, out float floorY)
     {
-        EnsureGrid();
-        int gx = x - GX0, gz = z - GZ0;
-        return gx >= 0 && gz >= 0 && gx < GW && gz < GH && s_Block[gx, gz];
+        foreach (var c in Catwalks)
+            if (x >= c.X0 && x <= c.X1 && Mathf.Abs(y - c.Y) <= tolerance) { floorY = c.Y; return true; }
+        floorY = 0f;
+        return false;
     }
 
-    public static bool Walkable(Vector2 p)
+    /// <summary>yFrom から yTo まで落ちるあいだに着地する足場（いちばん高いもの）</summary>
+    public static bool FloorBetween(float x, float yFrom, float yTo, out float floorY)
     {
-        int x = Mathf.FloorToInt(p.x / Scale), z = Mathf.FloorToInt(p.y / Scale);
-        return Cell(x, z) && !Blocked(x, z);
+        floorY = float.NegativeInfinity;
+        foreach (var c in Catwalks)
+            if (x >= c.X0 && x <= c.X1 && c.Y <= yFrom + 0.001f && c.Y >= yTo && c.Y > floorY) floorY = c.Y;
+        return !float.IsNegativeInfinity(floorY);
     }
 
-    public static bool CanStand(Vector2 p, float r) =>
-        Walkable(p + new Vector2(r, r)) && Walkable(p + new Vector2(-r, r)) &&
-        Walkable(p + new Vector2(r, -r)) && Walkable(p + new Vector2(-r, -r));
-
-    /// <summary>壁にぶつかったら滑るように移動する。</summary>
-    public static Vector2 Move(Vector2 p, Vector2 delta, float r)
+    /// <summary>近くにある、上（up=true）または下に進めるはしご。なければ -1</summary>
+    public static int LadderNear(float x, float y, bool up)
     {
-        var n = p + delta;
-        if (CanStand(n, r)) return n;
-        var nx = new Vector2(p.x + delta.x, p.y);
-        if (CanStand(nx, r)) return nx;
-        var nz = new Vector2(p.x, p.y + delta.y);
-        if (CanStand(nz, r)) return nz;
-        return p;
+        for (int i = 0; i < Ladders.Length; i++)
+        {
+            var l = Ladders[i];
+            if (Mathf.Abs(l.X - x) > 0.7f) continue;
+            if (up && y >= l.Y0 - 0.05f && y < l.Y1 - 0.05f) return i;
+            if (!up && y > l.Y0 + 0.05f && y <= l.Y1 + 0.05f) return i;
+        }
+        return -1;
     }
 
     public static Vector3 ToWorld(Vector2 p, float y = 0f) => Origin + new Vector3(p.x, y, p.y);
@@ -227,6 +212,7 @@ public static class InteriorMap
 
     public static string AreaName(Vector2 p)
     {
+        p.y += 0.6f;
         p /= Scale;
         foreach (var a in Areas)
             if (p.x >= a.Rect.xMin && p.x < a.Rect.xMax && p.y >= a.Rect.yMin && p.y < a.Rect.yMax)
@@ -234,14 +220,17 @@ public static class InteriorMap
         return "";
     }
 
-    /// <summary>装甲の長方形（メートル）。部屋をひとまわり大きくしたもの。ミニマップでも使う。</summary>
+    /// <summary>装甲の長方形（メートル）。空洞をひとまわり大きくしたもの。ミニマップでも使う。</summary>
     public static Rect ArmorRect(Area a, float extra = 0f)
     {
         float m = ArmorMargin + extra;
         return Rect.MinMaxRect((a.Rect.xMin - m) * Scale, (a.Rect.yMin - m) * Scale, (a.Rect.xMax + m) * Scale, (a.Rect.yMax + m) * Scale);
     }
 
-    // ------------------------------------------------------------------ 見た目（2Dイラスト）
+    public static Rect CavityRect(Area a) =>
+        Rect.MinMaxRect(a.Rect.xMin * Scale, a.Rect.yMin * Scale, a.Rect.xMax * Scale, a.Rect.yMax * Scale);
+
+    // ------------------------------------------------------------------ 見た目
 
     public class View
     {
@@ -252,11 +241,13 @@ public static class InteriorMap
         public SpriteRenderer[] TaskAlerts = new SpriteRenderer[Tasks.Count];
     }
 
-    /// <summary>動力炉の本体の位置（メートル）</summary>
-    public static readonly Vector2 ReactorPos = new Vector2(20f, 41.5f) * Scale;
+    // 重なり順（小さいほど奥）
+    const int OrderCavity = -95, OrderGirder = -88, OrderBrace = -87, OrderGear = -82, OrderActuator = -80, OrderBackCable = -76,
+              OrderHaze = -60, OrderEdge = -55, OrderLadder = 8, OrderCatwalk = 10, OrderProp = 40, OrderFrontCable = 5000;
+    public const int OrderPilot = 200;
 
-    const float WallT = 0.4f;      // 壁の上面の太さ
-    const float FaceH = 1.0f;      // 壁の手前の面の高さ（画面上の縦の長さ）
+    /// <summary>足場の絵の床の上面が、絵の下端から何ピクセルか（generate_art.py の catwalk と合わせる）</summary>
+    const float CatwalkFloorPx = 18f;
 
     public static View Build(Transform parent)
     {
@@ -266,73 +257,197 @@ public static class InteriorMap
         root.position = Origin;
         v.Root = root;
 
-        // 床
+        BuildArmor(root);
+        BuildBackLayer(root);
+        BuildCrewLayer(root, v);
+        BuildFrontLayer(root);
+        return v;
+    }
+
+    // ---------------- 奥の層：骨組み・歯車・シリンダー・ケーブル（最後にもやを掛けて薄くする）
+
+    static void BuildBackLayer(Transform root)
+    {
+        var rnd = new System.Random(9);
+        float R(float a, float b) => a + (float)rnd.NextDouble() * (b - a);
+        var steel = Prims.Hex("#58626c");
+        var brace = Prims.Hex("#3e464e");
+
         foreach (var a in Areas)
         {
-            var c = a.Rect.center * Scale;
-            Art.Tiled(root, "floor", new Vector3(c.x, 0f, c.y), new Vector2(a.Rect.width, a.Rect.height) * Scale, Art.OrderFloor, a.Floor, a.Name);
+            var r = CavityRect(a);
+            Art.Box(root, r, -0.1f, OrderCavity, Prims.Hex("#1e2329"), a.Name + " 奥");
+
+            // 骨組み：縦の柱と横のはり、X 字の筋かい
+            float colStep = 3f * Scale, rowStep = 4f * Scale;
+            for (float x = r.xMin + 0.6f * Scale; x < r.xMax; x += colStep)
+                Art.Box(root, Rect.MinMaxRect(x - 0.28f, r.yMin, x + 0.28f, r.yMax), -0.09f, OrderGirder, steel, "柱");
+            for (float y = r.yMin + 1.5f * Scale; y < r.yMax; y += rowStep)
+                Art.Box(root, Rect.MinMaxRect(r.xMin, y - 0.22f, r.xMax, y + 0.22f), -0.09f, OrderGirder, steel, "はり");
+            for (float x = r.xMin + 0.6f * Scale; x + colStep <= r.xMax + 0.5f; x += colStep)
+                for (float y = r.yMin + 1.5f * Scale; y + rowStep <= r.yMax + 0.5f; y += rowStep)
+                    foreach (var sign in new[] { 1f, -1f })
+                    {
+                        float len = Mathf.Sqrt(colStep * colStep + rowStep * rowStep);
+                        var b = Art.Box(root, new Rect(-0.12f, -len * 0.5f, 0.24f, len), -0.095f, OrderBrace, brace, "筋かい");
+                        b.transform.localPosition = new Vector3(x + colStep * 0.5f, -0.095f, y + rowStep * 0.5f);
+                        b.transform.localRotation = Quaternion.Euler(90f, sign * Mathf.Atan2(colStep, rowStep) * Mathf.Rad2Deg, 0f);
+                    }
+
+            // 小さな歯車をたくさん散らす
+            int gears = Mathf.Max(2, Mathf.RoundToInt(a.Rect.width * a.Rect.height / 5f));
+            for (int i = 0; i < gears; i++)
+            {
+                var g = Art.Place(root, "gear", new Vector3(R(r.xMin + 0.5f, r.xMax - 0.5f), -0.08f, R(r.yMin + 0.5f, r.yMax - 0.5f)), OrderGear, null, "歯車");
+                g.transform.localScale = Vector3.one * R(0.18f, 0.5f) * Scale;
+                g.transform.localRotation = Quaternion.Euler(90f, R(0f, 30f), 0f);
+            }
         }
 
-        BuildArmor(root);
-        BuildWalls(root);
-        BuildProps(root, v);
+        // 手足の油圧シリンダー（設計マス：x, 下, 上）
+        (float x, float y0, float y1)[] actuators =
+        {
+            (14f, 9f, 21f), (17.4f, 9f, 21f), (22.6f, 9f, 21f), (26f, 9f, 21f),
+            (5.6f, 28f, 40f), (8.4f, 28f, 40f), (31.6f, 28f, 40f), (34.4f, 28f, 40f),
+            (12.2f, -3f, 7f), (17.8f, -3f, 7f), (22.2f, -3f, 7f), (27.8f, -3f, 7f),
+        };
+        foreach (var (x, y0, y1) in actuators)
+        {
+            var pr = Art.Place(root, "piston", new Vector3(x * Scale, -0.07f, (y0 + y1) * 0.5f * Scale), OrderActuator, null, "シリンダー");
+            pr.drawMode = SpriteDrawMode.Sliced;
+            pr.size = new Vector2(0.9f, (y1 - y0) * Scale);
+        }
 
-        // 操作盤と立ち位置
+        // フレームに沿って走るケーブルの束（設計マス：x, 下, 上。縦向き）
+        (float x, float y0, float y1)[] runs =
+        {
+            (11.5f, 34f, 46f), (28.5f, 34f, 46f), (18.4f, 28f, 34f), (21.6f, 28f, 34f),
+            (5.3f, 27f, 41f), (8.7f, 27f, 41f), (31.3f, 27f, 41f), (34.7f, 27f, 41f),
+            (13.3f, 8f, 22f), (17.7f, 8f, 22f), (22.3f, 8f, 22f), (26.7f, 8f, 22f),
+            (2.4f, 15f, 27f), (37.6f, 15f, 27f), (11.4f, -4f, 8f), (28.6f, -4f, 8f), (15.4f, 50f, 58f), (24.6f, 50f, 58f),
+        };
+        foreach (var (x, y0, y1) in runs)
+            Art.Tiled(root, "cable_run", new Vector3(x * Scale, -0.06f, (y0 + y1) * 0.5f * Scale), new Vector2(0.75f, (y1 - y0) * Scale), OrderBackCable, null, "ケーブル");
+        // 横向き（はりに沿う）
+        (float x0, float x1, float y)[] hruns = { (11f, 29f, 45.4f), (4f, 11f, 44.6f), (29f, 36f, 44.6f), (12f, 28f, 27.5f), (2f, 11f, 26.5f), (29f, 38f, 26.5f), (15f, 25f, 57.5f) };
+        foreach (var (x0, x1, y) in hruns)
+        {
+            var c = Art.Tiled(root, "cable_run", new Vector3((x0 + x1) * 0.5f * Scale, -0.06f, y * Scale), new Vector2(0.75f, (x1 - x0) * Scale), OrderBackCable, null, "ケーブル");
+            c.transform.localRotation = Quaternion.Euler(90f, 90f, 0f);
+        }
+        // はりから垂れたケーブル
+        foreach (var a in Areas)
+        {
+            var r = CavityRect(a);
+            int n = Mathf.Max(1, Mathf.RoundToInt(a.Rect.width * a.Rect.height / 25f));
+            for (int i = 0; i < n; i++)
+            {
+                float w = Mathf.Min(4f, r.width - 0.4f);
+                var c = Art.Place(root, "cable_back_" + rnd.Next(3), new Vector3(R(r.xMin + w * 0.5f, r.xMax - w * 0.5f), -0.055f, R(r.yMin + 2f, r.yMax - 0.9f)), OrderBackCable + 1, null, "垂れたケーブル");
+                c.transform.localScale = new Vector3(w / 4f, 1f, 1f);
+            }
+        }
+
+        // もや：奥の層全体を少し薄くして、操縦士の層を見やすくする
+        var haze = new Color(0.2f, 0.24f, 0.28f, 0.45f);
+        foreach (var a in Areas) Art.Box(root, CavityRect(a), -0.04f, OrderHaze, haze, "もや");
+        // 空洞のふち（装甲の断面）
+        var edge = Prims.Hex("#78828c");
+        foreach (var a in Areas)
+        {
+            var r = CavityRect(a);
+            const float t = 0.18f;
+            Art.Box(root, Rect.MinMaxRect(r.xMin - t, r.yMin - t, r.xMax + t, r.yMin), -0.03f, OrderEdge, edge);
+            Art.Box(root, Rect.MinMaxRect(r.xMin - t, r.yMax, r.xMax + t, r.yMax + t), -0.03f, OrderEdge, edge);
+            Art.Box(root, Rect.MinMaxRect(r.xMin - t, r.yMin, r.xMin, r.yMax), -0.03f, OrderEdge, edge);
+            Art.Box(root, Rect.MinMaxRect(r.xMax, r.yMin, r.xMax + t, r.yMax), -0.03f, OrderEdge, edge);
+        }
+    }
+
+    // ---------------- 中の層：足場・はしご・操作盤・整備装置
+
+    static void BuildCrewLayer(Transform root, View v)
+    {
+        float lift = (96f * 0.5f - CatwalkFloorPx) / Art.PixelsPerUnit; // 絵の中心から床の上面まで
+        foreach (var c in Catwalks)
+            Art.Tiled(root, "catwalk", new Vector3((c.X0 + c.X1) * 0.5f, 0.01f, c.Y + lift), new Vector2(c.X1 - c.X0, 1.5f), OrderCatwalk, null, "足場");
+        foreach (var l in Ladders)
+            Art.Tiled(root, "ladder", new Vector3(l.X, 0.005f, (l.Y0 + l.Y1) * 0.5f + 0.55f), new Vector2(1f, l.Y1 - l.Y0 + 1.1f), OrderLadder, null, "はしご");
+
+        // 操作盤（立ち位置の横）と、立ち位置を示す床の光
         for (int i = 0; i < Stations.Count; i++)
         {
             var s = Stations.All[i];
-            v.Pads[i] = Art.Place(root, "pad", new Vector3(s.Pos.x, 0.01f, s.Pos.y), Art.OrderPad, s.Color, s.Name + " 立ち位置");
+            v.Pads[i] = Art.Box(root, new Rect(s.Pos.x - 0.7f, s.Pos.y + 0.02f, 1.4f, 0.14f), 0.02f, OrderCatwalk + 1, s.Color, s.Name + " 立ち位置");
             if (s.Type != StationType.Core)
             {
                 string sprite = s.Type == StationType.Leg ? "console_leg" : s.Type == StationType.Arm ? "console_arm" : "console_head";
                 var cp = s.Pos + s.ConsoleOffset;
-                Art.Place(root, sprite, new Vector3(cp.x, 0.02f, cp.y), Art.DepthOrder(cp.y - 0.8f), null, s.Name + " 操作盤");
+                var con = Art.Place(root, sprite, new Vector3(cp.x, 0.02f, cp.y), OrderProp, null, s.Name + " 操作盤");
+                con.transform.localScale = Vector3.one * 0.8f;
             }
-            var fire = Art.Place(root, "fire_0", new Vector3(s.Pos.x, 0.03f, s.Pos.y + 0.6f), Art.DepthOrder(s.Pos.y - 0.2f), null, s.Name + " 火災");
-            fire.transform.localScale = Vector3.one * 1.2f;
+            var fire = Art.Place(root, "fire_0", new Vector3(s.Pos.x, 0.03f, s.Pos.y + 0.75f), OrderPilot + 10, null, s.Name + " 火災");
             fire.gameObject.SetActive(false);
             v.Fires[i] = fire;
         }
 
-        // 動力炉の本体（光る芯は明るさを変えるので別の層）
-        int ro = Art.DepthOrder(ReactorPos.y - 1.2f);
-        Art.Place(root, "reactor_base", new Vector3(ReactorPos.x, 0.02f, ReactorPos.y), ro, null, "動力炉 本体");
-        v.ReactorCore = Art.Place(root, "reactor_core", new Vector3(ReactorPos.x, 0.02f, ReactorPos.y), ro + 1, Prims.Hex("#ffd23f"), "動力炉 芯");
+        // 動力炉（足元が ReactorPos）
+        float rh = 192f / Art.PixelsPerUnit * 0.5f;
+        Art.Place(root, "reactor_base", new Vector3(ReactorPos.x, 0.02f, ReactorPos.y + rh), OrderProp, null, "動力炉 本体");
+        v.ReactorCore = Art.Place(root, "reactor_core", new Vector3(ReactorPos.x, 0.02f, ReactorPos.y + rh), OrderProp + 1, Prims.Hex("#ffd23f"), "動力炉 芯");
 
-        return v;
-    }
-
-    /// <summary>床の飾り、障害物（機械や荷物）、整備タスクの装置を置く。</summary>
-    static void BuildProps(Transform root, View v)
-    {
-        foreach (var (sprite, center, size, vertical) in FloorDecor)
+        // 足場に置いた荷物や機械（設計マス：x, 足場の高さ, 大きさ）
+        (string sprite, float x, float y, float scale)[] props =
         {
-            var c = center * Scale;
-            var sz = size * Scale;
-            if (sprite == "pipes_h") sz.y = 0.75f;      // 配管の太さは絵のまま
-            if (sprite == "stripes") sz.y = 0.5f;
-            var r = sprite == "grate"
-                ? Art.Place(root, sprite, new Vector3(c.x, 0.01f, c.y), Art.OrderPad - 1)
-                : Art.Tiled(root, sprite, new Vector3(c.x, 0.01f, c.y), sz, Art.OrderPad - 1);
-            if (vertical) r.transform.localRotation = Quaternion.Euler(90f, 90f, 0f);
+            ("tanks", 13f, 34.4f, 0.8f), ("crate", 27.6f, 34.4f, 0.8f), ("crate", 26.8f, 34.4f, 0.8f),
+            ("machine", 27f, 40.6f, 0.6f), ("tanks", 14.5f, 40.6f, 0.6f), ("monitors", 17f, 50.4f, 0.7f),
+            ("machine", 22f, 22.4f, 0.55f), ("crate", 12.6f, 22.4f, 0.8f),
+            ("tanks", 9.5f, 15.4f, 0.7f), ("tanks", 30.5f, 15.4f, 0.7f), ("crate", 37.2f, 15.4f, 0.8f), ("crate", 2.8f, 15.4f, 0.8f),
+            ("crate", 13f, -7.6f, 0.8f), ("crate", 14f, -7.6f, 0.8f), ("crate", 28f, -7.6f, 0.8f), ("tanks", 30f, -7.6f, 0.7f),
+        };
+        foreach (var (sprite, x, y, scale) in props)
+        {
+            var sp = Art.Get(sprite);
+            float half = sp.rect.height / Art.PixelsPerUnit * 0.5f * scale;
+            var r = Art.Place(root, sprite, new Vector3(x * Scale, 0.015f, y * Scale + half), OrderProp - 5, null, sprite);
+            r.transform.localScale = Vector3.one * scale;
         }
 
-        foreach (var (rect, sprite) in Obstacles)
-        {
-            if (sprite == null) continue;
-            var c = new Vector2(rect.center.x, rect.center.y) * Scale;
-            float bottom = rect.yMin * Scale;
-            Art.Place(root, sprite, new Vector3(c.x, 0.02f, c.y), Art.DepthOrder(bottom), null, sprite);
-        }
-
+        // 整備装置（足場の上、立ち位置の後ろの壁ぎわ）
         for (int i = 0; i < Tasks.Count; i++)
         {
             var t = Tasks.All[i];
             var p = t.Pos + t.PanelOffset;
-            Art.Place(root, Tasks.SpriteFor(t.Kind), new Vector3(p.x, 0.02f, p.y), Art.DepthOrder(p.y - 0.6f), null, t.Name);
-            var alert = Art.Place(root, "alert", new Vector3(p.x, 0.03f, p.y + 1.1f), Art.OrderObjects + 5000, null, t.Name + " 故障");
+            var panel = Art.Place(root, Tasks.SpriteFor(t.Kind), new Vector3(p.x, 0.02f, p.y), OrderProp - 2, null, t.Name);
+            panel.transform.localScale = Vector3.one * 0.85f;
+            var alert = Art.Place(root, "alert", new Vector3(p.x, 0.03f, p.y + 1.2f), OrderFrontCable + 100, null, t.Name + " 故障");
             alert.gameObject.SetActive(false);
             v.TaskAlerts[i] = alert;
+        }
+    }
+
+    // ---------------- 手前の層：濃い色の垂れたケーブル（操縦士より手前）
+
+    static void BuildFrontLayer(Transform root)
+    {
+        var rnd = new System.Random(21);
+        float R(float a, float b) => a + (float)rnd.NextDouble() * (b - a);
+        foreach (var a in Areas)
+        {
+            var r = CavityRect(a);
+            int n = Mathf.Max(1, Mathf.RoundToInt(a.Rect.width * a.Rect.height / 45f));
+            for (int i = 0; i < n; i++)
+            {
+                float w = Mathf.Min(R(2.5f, 4.5f), r.width - 0.4f);
+                var c = Art.Place(root, "cable_front_" + rnd.Next(3), new Vector3(R(r.xMin + w * 0.5f, r.xMax - w * 0.5f), 0.05f, R(r.yMin + 2.2f, r.yMax - 0.9f)), OrderFrontCable, null, "手前のケーブル");
+                c.transform.localScale = new Vector3(w / 4f, R(0.8f, 1.1f), 1f);
+            }
+            int drops = Mathf.Max(1, a.Rect.width / 4);
+            for (int i = 0; i < drops; i++)
+            {
+                var c = Art.Place(root, "cable_drop_front", new Vector3(R(r.xMin + 0.3f, r.xMax - 0.3f), 0.05f, r.yMax - 1.25f * R(0.6f, 1f)), OrderFrontCable + 1, null, "垂れた線");
+                c.transform.localScale = Vector3.one * R(0.7f, 1f);
+            }
         }
     }
 
@@ -358,23 +473,54 @@ public static class InteriorMap
             var a = Areas[i];
             var r = ArmorRect(a);
             Art.Box(root, r, -0.25f, -150 + i, a.Armor, a.Name + " 装甲");
-            // 装甲の継ぎ目（少し暗い帯）
-            var band = new Rect(r.xMin, r.yMin, r.width, 0.35f * Scale);
-            Art.Box(root, band, -0.24f, -100 + i, a.Armor * 0.78f + new Color(0, 0, 0, 0.22f), "継ぎ目");
+            // 装甲の立体感：上のふちは明るく、下のふちは暗く、縦の継ぎ目
+            var dark = new Color(a.Armor.r * 0.72f, a.Armor.g * 0.72f, a.Armor.b * 0.72f, 1f);
+            var light = Color.Lerp(a.Armor, Color.white, 0.35f);
+            Art.Box(root, new Rect(r.xMin, r.yMin, r.width, 0.35f * Scale), -0.24f, -100 + i, dark, "下のふち");
+            Art.Box(root, new Rect(r.xMin, r.yMax - 0.25f * Scale, r.width, 0.25f * Scale), -0.24f, -100 + i, light, "上のふち");
+            for (float x = r.xMin + 2.6f * Scale; x < r.xMax - 1f; x += 3f * Scale)
+                Art.Box(root, Rect.MinMaxRect(x - 0.06f, r.yMin, x + 0.06f, r.yMax), -0.24f, -100 + i, dark, "継ぎ目");
         }
 
-        // 関節の歯車（設計マスでの中心と直径）
-        (float x, float z, float d)[] gears =
+        var white = Prims.Hex(White);
+        var red = Prims.Hex(Red);
+        var yellow = Prims.Hex(Yellow);
+
+        // 手（指が分かれた機械の手）。手首のカフは腕の装甲の下にもぐる
+        foreach (var (x, flip) in new[] { (6.5f, false), (33.5f, true) })
         {
-            (3f, 43f, 4f), (37f, 43f, 4f),          // 肩
-            (3.5f, 28f, 3f), (36.5f, 28f, 3f),      // ひじ
-            (11.2f, 23f, 3.5f), (28.8f, 23f, 3.5f), // 股関節
-            (10.5f, 8.5f, 3f), (29.5f, 8.5f, 3f),   // ひざ
+            var hand = Art.Place(root, "armor_hand", new Vector3(x * Scale, -0.33f, 8.6f * Scale), -165, white, "手");
+            hand.flipX = flip;
+            hand.transform.localScale = Vector3.one * 3.4f;
+        }
+        // ブーツ（足首から下）
+        foreach (var x in new[] { 14f, 26f })
+        {
+            var boot = Art.Place(root, "armor_boot", new Vector3(x * Scale, -0.33f, -10.3f * Scale), -165, red, "ブーツ");
+            boot.transform.localScale = new Vector3(3.9f, 1.7f, 1f);
+        }
+        // 丸い関節：装甲より手前、空洞より奥。空洞のまわりにリングが見える（設計マス：x, z, 直径）
+        (float x, float z, float d)[] joints =
+        {
+            (4.5f, 43f, 6f), (35.5f, 43f, 6f),       // 肩
+            (7f, 27f, 5.5f), (33f, 27f, 5.5f),       // ひじ
+            (6.5f, 14.4f, 4f), (33.5f, 14.4f, 4f),   // 手首
+            (14.5f, 22.5f, 5f), (25.5f, 22.5f, 5f),  // 股関節
+            (15.5f, 8f, 5.5f), (24.5f, 8f, 5.5f),    // ひざ
+            (15f, -4.2f, 4f), (25f, -4.2f, 4f),      // 足首
+            (20f, 47.5f, 4.5f),                      // 首
         };
-        foreach (var g in gears)
+        foreach (var j in joints)
         {
-            var gr = Art.Place(root, "gear", new Vector3(g.x * Scale, -0.2f, g.z * Scale), -20, null, "歯車");
-            gr.transform.localScale = Vector3.one * (g.d * Scale / 3f);
+            var jr = Art.Place(root, "armor_joint", new Vector3(j.x * Scale, -0.2f, j.z * Scale), -140, null, "関節");
+            jr.transform.localScale = Vector3.one * (j.d * Scale / 2f);
+        }
+        // 肩アーマー（関節の上にかぶさる）
+        foreach (var (x, flip) in new[] { (3.2f, false), (36.8f, true) })
+        {
+            var pa = Art.Place(root, "armor_pauldron", new Vector3(x * Scale, -0.19f, 46.2f * Scale), -138, yellow, "肩アーマー");
+            pa.flipX = flip;
+            pa.transform.localScale = Vector3.one * 2.6f;
         }
 
         // 油圧ピストン（設計マスでの中心と長さ）
@@ -385,15 +531,15 @@ public static class InteriorMap
         };
         foreach (var pz in pistons)
         {
-            var pr = Art.Place(root, "piston", new Vector3(pz.x * Scale, -0.19f, pz.z * Scale), -19, null, "ピストン");
+            var pr = Art.Place(root, "piston", new Vector3(pz.x * Scale, -0.19f, pz.z * Scale), -119, null, "ピストン");
             pr.drawMode = SpriteDrawMode.Sliced;
             pr.size = new Vector2(1f, pz.len * Scale);
         }
 
         // 目と角（頭）
         var eye = Prims.Hex("#7ff4ff");
-        Art.Box(root, Rect.MinMaxRect(16.5f * Scale, 58.3f * Scale, 19.2f * Scale, 59.0f * Scale), -0.18f, -18, eye, "目");
-        Art.Box(root, Rect.MinMaxRect(20.8f * Scale, 58.3f * Scale, 23.5f * Scale, 59.0f * Scale), -0.18f, -18, eye, "目");
+        Art.Box(root, Rect.MinMaxRect(16.5f * Scale, 58.3f * Scale, 19.2f * Scale, 59.0f * Scale), -0.18f, -118, eye, "目");
+        Art.Box(root, Rect.MinMaxRect(20.8f * Scale, 58.3f * Scale, 23.5f * Scale, 59.0f * Scale), -0.18f, -118, eye, "目");
         foreach (var side in new[] { -1f, 1f })
         {
             var horn = Art.Box(root, Rect.MinMaxRect(-0.45f * Scale, -2.6f * Scale, 0.45f * Scale, 2.6f * Scale), -0.26f, -160, Prims.Hex(Yellow), "角");
@@ -402,55 +548,4 @@ public static class InteriorMap
         }
     }
 
-    /// <summary>
-    /// 歩ける場所と歩けない場所の境目に壁を立てる（同じ列の壁はまとめて1本にする）。
-    /// 部屋の北側の壁には手前の面（パネル）も描いて、奥行きがあるように見せる。
-    /// </summary>
-    static void BuildWalls(Transform root)
-    {
-        EnsureGrid();
-        var cap = Prims.Hex("#ffffff");
-        // 横向きの境目（z = 一定の線）。種類 1 = 南側が部屋（北の壁）、2 = 北側が部屋（南の壁）
-        for (int z = GZ0; z <= GZ0 + GH; z++)
-        {
-            int start = int.MinValue, kind = 0;
-            for (int x = GX0; x <= GX0 + GW + 1; x++)
-            {
-                bool below = Cell(x, z - 1), above = Cell(x, z);
-                int k = below && !above ? 1 : above && !below ? 2 : 0;
-                if (k != kind)
-                {
-                    if (kind != 0) HWall(root, start, x, z, kind == 1, cap);
-                    start = x;
-                    kind = k;
-                }
-            }
-        }
-        // 縦向きの境目（x = 一定の線）
-        for (int x = GX0; x <= GX0 + GW; x++)
-        {
-            int start = int.MinValue;
-            for (int z = GZ0; z <= GZ0 + GH + 1; z++)
-            {
-                bool edge = Cell(x - 1, z) != Cell(x, z);
-                if (edge && start == int.MinValue) start = z;
-                if (!edge && start != int.MinValue)
-                {
-                    float len = (z - start) * Scale + WallT;
-                    Art.Sliced(root, "wall_cap", new Vector3(x * Scale, 0.05f, (start + z) * 0.5f * Scale + WallT * 0.5f), new Vector2(WallT, len), Art.OrderWallCap, cap, "壁");
-                    start = int.MinValue;
-                }
-            }
-        }
-    }
-
-    static void HWall(Transform root, int x0, int x1, int z, bool northWall, Color cap)
-    {
-        float len = (x1 - x0) * Scale;
-        float cx = (x0 + x1) * 0.5f * Scale;
-        float lineZ = z * Scale;
-        if (northWall)
-            Art.Tiled(root, "wall_face", new Vector3(cx, 0.04f, lineZ - FaceH * 0.5f), new Vector2(len, FaceH), Art.OrderWallFace, null, "壁の面");
-        Art.Sliced(root, "wall_cap", new Vector3(cx, 0.05f, lineZ + WallT * 0.5f), new Vector2(len + WallT, WallT), Art.OrderWallCap, cap, "壁");
-    }
 }
