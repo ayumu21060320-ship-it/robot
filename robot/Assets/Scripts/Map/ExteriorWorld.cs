@@ -8,11 +8,8 @@ using UnityEngine;
 public static class ExteriorWorld
 {
     public const float Bounds = 195f;
-    public const float RobotRadius = 5f;
-    public const float HiveRadius = 9f;
-    public const int HiveMaxHp = 40;
-
-    public static readonly Vector2[] HivePos = { new Vector2(-70f, 105f), new Vector2(100f, 55f), new Vector2(25f, 175f) };
+    /// <summary>タイタンの当たり判定の半径（大きくなったぶん広い）</summary>
+    public const float RobotRadius = 8f;
 
     public struct Building
     {
@@ -25,8 +22,6 @@ public static class ExteriorWorld
     static List<Building> s_Buildings;
     public static List<Building> Buildings { get { Generate(); return s_Buildings; } }
 
-    public static GameObject[] HiveObjects = new GameObject[3];
-    public static Transform[] HiveCores = new Transform[3];
 
     static void Generate()
     {
@@ -40,7 +35,10 @@ public static class ExteriorWorld
             var p = new Vector2((R() * 2 - 1) * 180f, (R() * 2 - 1) * 180f);
             if (p.magnitude < 32f) continue;
             bool bad = false;
-            foreach (var h in HivePos) if (Vector2.Distance(h, p) < 28f) bad = true;
+            // 敵が立つ場所と、タイタンのスタート地点から敵までのまっすぐな道はあける
+            if (Vector2.Distance(RobotState.BossStart, p) < 34f) bad = true;
+            float t = Mathf.Clamp01(Vector2.Dot(p, RobotState.BossStart) / RobotState.BossStart.sqrMagnitude);
+            if (Vector2.Distance(p, RobotState.BossStart * t) < 30f) bad = true;
             float w = 6 + R() * 9, d = 6 + R() * 9, ht = 6 + R() * 20;
             float rad = Mathf.Max(w, d) * 0.6f;
             foreach (var b in s_Buildings) if (Vector2.Distance(b.Pos, p) < b.Radius + rad + 8f) bad = true;
@@ -49,14 +47,13 @@ public static class ExteriorWorld
         }
     }
 
-    /// <summary>ロボットがこの位置に立てるか（ビル・巣・外周の壁）</summary>
-    public static bool Blocked(Vector2 p, System.Func<int, bool> hiveAlive)
+    /// <summary>タイタンがこの位置に立てるか（ビル・巨大な敵・外周の壁）</summary>
+    public static bool Blocked(Vector2 p, Vector2 bossPos, bool bossAlive)
     {
         if (Mathf.Abs(p.x) > Bounds || Mathf.Abs(p.y) > Bounds) return true;
         foreach (var b in Buildings)
             if (Vector2.Distance(b.Pos, p) < b.Radius + RobotRadius) return true;
-        for (int i = 0; i < HivePos.Length; i++)
-            if (hiveAlive(i) && Vector2.Distance(HivePos[i], p) < HiveRadius + RobotRadius) return true;
+        if (bossAlive && Vector2.Distance(bossPos, p) < RobotState.BossRadius + RobotRadius) return true;
         return false;
     }
 
@@ -106,27 +103,6 @@ public static class ExteriorWorld
                 Prims.Box(g.transform, new Vector3(0, y / b.Size.y - 0.5f, 0.505f), new Vector3(0.7f, 0.8f / b.Size.y, 0.01f), window, true);
         }
 
-        // 敵の巣
-        var shell = Prims.Hex("#2d1a33");
-        var vein = Prims.Hex("#ff3d7f");
-        for (int i = 0; i < HivePos.Length; i++)
-        {
-            var h = new GameObject("敵の巣 " + (i + 1)).transform;
-            h.SetParent(root, false);
-            h.position = new Vector3(HivePos[i].x, 0, HivePos[i].y);
-            Prims.Shape(PrimitiveType.Cylinder, h, new Vector3(0, 1.5f, 0), new Vector3(18f, 1.5f, 18f), shell);
-            Prims.Shape(PrimitiveType.Cylinder, h, new Vector3(0, 8f, 0), new Vector3(9f, 6f, 9f), shell);
-            for (int k = 0; k < 6; k++)
-            {
-                float a = k / 6f * Mathf.PI * 2f;
-                var sp = Prims.Box(h, new Vector3(Mathf.Cos(a) * 6.5f, 6f, Mathf.Sin(a) * 6.5f), new Vector3(1.6f, 10f, 1.6f), shell);
-                sp.transform.localRotation = Quaternion.Euler(Mathf.Sin(a) * 20f, 0, -Mathf.Cos(a) * 20f);
-                Prims.Box(h, new Vector3(Mathf.Cos(a) * 4.7f, 8f, Mathf.Sin(a) * 4.7f), new Vector3(0.4f, 11f, 0.4f), vein, true);
-            }
-            var core = Prims.Shape(PrimitiveType.Sphere, h, new Vector3(0, 16.5f, 0), Vector3.one * 6.5f, vein, true, "コア");
-            HiveObjects[i] = h.gameObject;
-            HiveCores[i] = core.transform;
-        }
         return root;
     }
 }
