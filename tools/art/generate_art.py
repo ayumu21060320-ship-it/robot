@@ -240,6 +240,31 @@ def fire(frame):
     return finish(img)
 
 
+def pad():
+    """操作盤の前の立ち位置（1.5m）。Unity 側で席の色を掛ける。"""
+    S = 96
+    img = canvas(S, S)
+    d = ImageDraw.Draw(img)
+    ell(d, (4, 4, S - 4, S - 4), fill=(150, 150, 150, 255), outline=INK, width=4)
+    ell(d, (14, 14, S - 14, S - 14), fill=(255, 255, 255, 255))
+    ell(d, (24, 24, S - 24, S - 24), fill=(120, 120, 120, 255))
+    for a in range(0, 360, 45):
+        x, y = 48 + math.cos(math.radians(a)) * 38, 48 + math.sin(math.radians(a)) * 38
+        ell(d, (x - 2.5, y - 2.5, x + 2.5, y + 2.5), fill=(60, 66, 74, 255))
+    return finish(img)
+
+
+def shadow():
+    W, H = 96, 32
+    img = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    ImageDraw.Draw(img).ellipse([10, 6, W - 10, H - 6], fill=(0, 0, 0, 110))
+    return img.filter(ImageFilter.GaussianBlur(2))
+
+
+def white():
+    return Image.new("RGBA", (8, 8), (255, 255, 255, 255))
+
+
 # ------------------------------------------------------------------ 書き出し
 
 def build():
@@ -256,6 +281,9 @@ def build():
         out[f"console_{k}"] = console(k)
     out["reactor_base"], out["reactor_core"] = reactor()
     out["fire_0"], out["fire_1"] = fire(0), fire(1)
+    out["pad"] = pad()
+    out["shadow"] = shadow()
+    out["white"] = white()
     for name, img in out.items():
         img.save(os.path.join(OUT, name + ".png"))
     return out

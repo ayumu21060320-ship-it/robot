@@ -139,19 +139,20 @@ public class GameBootstrap : MonoBehaviour
         {
             bool fire = rs != null && rs.FireHp.Count == Stations.Count && rs.FireHp[i] > 0;
             bool occupied = rs != null && rs.Occupant.Count == Stations.Count && rs.Occupant[i] != 0;
-            if (m_Interior.Fires[i].activeSelf != fire) m_Interior.Fires[i].SetActive(fire);
-            if (fire)
-                for (int f = 0; f < 3; f++)
-                    m_Interior.FireFlames[i * 3 + f].localScale = new Vector3(0.4f, Random.Range(0.5f, 1.3f), 0.4f);
+            var fireSprite = m_Interior.Fires[i];
+            if (fireSprite.gameObject.activeSelf != fire) fireSprite.gameObject.SetActive(fire);
+            if (fire) fireSprite.sprite = Art.Get(((int)(Time.time * 8f) + i) % 2 == 0 ? "fire_0" : "fire_1");
+            // 立ち位置：使用中は席の色で明るく、空いているときはゆっくり点滅、火災中は暗い赤
             var c = Stations.All[i].Color;
-            float pulse = 0.45f + Mathf.Sin(Time.time * 3f + i) * 0.12f;
-            Prims.SetColor(m_Interior.Pads[i], fire ? Prims.Hex("#401008") : occupied ? c : c * pulse);
+            float pulse = 0.55f + Mathf.Sin(Time.time * 3f + i) * 0.15f;
+            var padColor = fire ? Prims.Hex("#5a2a20") : occupied ? c : Color.Lerp(Prims.Hex("#6a747c"), c, pulse);
+            m_Interior.Pads[i].color = padColor;
         }
         if (rs != null)
         {
             float p = rs.Power.Value / RobotState.MaxPower;
-            var rc = p < 0.2f && Mathf.Sin(Time.time * 10f) > 0f ? Prims.Hex("#ff6a4a") : Color.Lerp(Prims.Hex("#4a3a10"), Prims.Hex("#ffd23f"), p);
-            Prims.SetColor(m_Interior.Reactor, rc);
+            var rc = p < 0.2f && Mathf.Sin(Time.time * 10f) > 0f ? Prims.Hex("#ff6a4a") : Color.Lerp(Prims.Hex("#5a4a2a"), Prims.Hex("#ffd23f"), p);
+            m_Interior.ReactorCore.color = rc;
 
             // ホストは R で再出撃
             if (networkManager.IsServer && rs.GameState.Value != RobotState.Playing &&
@@ -355,7 +356,8 @@ public class GameBootstrap : MonoBehaviour
         for (int i = 0; i < Stations.Count; i++)
         {
             var def = Stations.All[i];
-            var sp = m_InteriorCam.WorldToScreenPoint(InteriorMap.ToWorld(def.Pos + def.ConsoleOffset * 1.6f, 1f));
+            var labelPos = def.Type == StationType.Core ? InteriorMap.ReactorPos + new Vector2(0f, 2f) : def.Pos + def.ConsoleOffset + new Vector2(0f, 1.4f);
+            var sp = m_InteriorCam.WorldToScreenPoint(InteriorMap.ToWorld(labelPos, 1f));
             if (sp.z < 0 || sp.x < 0 || sp.x > Screen.width * 0.5f) continue;
             float w = 110 * s, h = 26 * s;
             var r = new Rect(sp.x - w * 0.5f, Screen.height - sp.y - h * 0.5f, w, h);
@@ -366,7 +368,7 @@ public class GameBootstrap : MonoBehaviour
         }
         foreach (var p in CrewPlayer.All)
         {
-            var sp = m_InteriorCam.WorldToScreenPoint(InteriorMap.ToWorld(p.DisplayPos, 2.2f));
+            var sp = m_InteriorCam.WorldToScreenPoint(InteriorMap.ToWorld(p.DisplayPos + new Vector2(0f, 1.85f), 1f));
             if (sp.x < 0 || sp.x > Screen.width * 0.5f) continue;
             float w = 40 * s, h = 20 * s;
             var r = new Rect(sp.x - w * 0.5f, Screen.height - sp.y - h - 14 * s, w, h);
@@ -401,7 +403,7 @@ public class GameBootstrap : MonoBehaviour
         {
             var min = ToMap(new Vector2(a.Rect.xMin, a.Rect.yMax) * InteriorMap.Scale);
             var max = ToMap(new Vector2(a.Rect.xMax, a.Rect.yMin) * InteriorMap.Scale);
-            DrawRect(Rect.MinMaxRect(min.x, min.y, max.x, max.y), Color.Lerp(a.Floor, Color.white, 0.15f));
+            DrawRect(Rect.MinMaxRect(min.x, min.y, max.x, max.y), a.Floor * 0.75f);
         }
 
         for (int i = 0; i < Stations.Count; i++)

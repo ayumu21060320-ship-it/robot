@@ -45,25 +45,26 @@ public static class InteriorMap
         }
     }
 
-    const string Hall = "#3a434a", Corridor = "#2c3338";
+    // 床のイラストに掛ける色（イラストが白っぽいので明るめの色）
+    const string Hall = "#b0bac4", Corridor = "#969fa8";
 
     public static readonly Area[] Areas =
     {
-        new Area("頭部 操縦室", 14, 25, 12, 8, "#34424a"),
+        new Area("頭部 操縦室", 14, 25, 12, 8, "#aac8c0"),
         new Area("首の通路",    18, 21,  4, 4, Corridor),
         new Area("胸部ホール",  12, 14, 16, 7, Hall),
         new Area("左肩の通路",   6, 16,  6, 3, Corridor),
-        new Area("左腕室",       0, 12,  6, 10, "#4a3c30"),
+        new Area("左腕室",       0, 12,  6, 10, "#d6be9f"),
         new Area("右肩の通路",  28, 16,  6, 3, Corridor),
-        new Area("右腕室",      34, 12,  6, 10, "#4a3c30"),
+        new Area("右腕室",      34, 12,  6, 10, "#d6be9f"),
         new Area("胸の下の通路", 18, 12, 4, 2, Corridor),
-        new Area("動力炉室",    15,  6, 10, 6, "#47432a"),
+        new Area("動力炉室",    15,  6, 10, 6, "#d2c896"),
         new Area("腰へ降りる通路", 18, 5, 4, 1, Corridor),
         new Area("腰の通路",     6,  2, 28, 3, Corridor),
         new Area("左脚の通路",   9,  0,  3, 2, Corridor),
-        new Area("左脚室",       6, -8,  9, 8, "#2e4048"),
+        new Area("左脚室",       6, -8,  9, 8, "#a3bfcf"),
         new Area("右脚の通路",  28,  0,  3, 2, Corridor),
-        new Area("右脚室",      25, -8,  9, 8, "#2e4048"),
+        new Area("右脚室",      25, -8,  9, 8, "#a3bfcf"),
     };
 
     const int GX0 = -1, GZ0 = -9, GW = 43, GH = 44;
@@ -128,18 +129,21 @@ public static class InteriorMap
         return "";
     }
 
-    // ------------------------------------------------------------------ 見た目
+    // ------------------------------------------------------------------ 見た目（2Dイラスト）
 
     public class View
     {
         public Transform Root;
-        public Renderer[] Pads = new Renderer[Stations.Count];
-        public GameObject[] Fires = new GameObject[Stations.Count];
-        public Transform[] FireFlames = new Transform[Stations.Count * 3];
-        public Renderer Reactor;
+        public SpriteRenderer[] Pads = new SpriteRenderer[Stations.Count];
+        public SpriteRenderer[] Fires = new SpriteRenderer[Stations.Count];
+        public SpriteRenderer ReactorCore;
     }
 
-    const float WallH = 1.4f, WallT = 0.3f;
+    /// <summary>動力炉の本体の位置（メートル）</summary>
+    public static readonly Vector2 ReactorPos = new Vector2(20f, 10.8f) * Scale;
+
+    const float WallT = 0.4f;      // 壁の上面の太さ
+    const float FaceH = 1.0f;      // 壁の手前の面の高さ（画面上の縦の長さ）
 
     public static View Build(Transform parent)
     {
@@ -149,79 +153,60 @@ public static class InteriorMap
         root.position = Origin;
         v.Root = root;
 
-        // 外の暗い背景（ロボットの外殻）
-        Prims.Box(root, new Vector3(20f * Scale, -0.3f, 12f * Scale), new Vector3(70f * Scale, 0.2f, 70f * Scale), Prims.Hex("#0b0f12"));
-
         // 床
         foreach (var a in Areas)
         {
             var c = a.Rect.center * Scale;
-            Prims.Box(root, new Vector3(c.x, -0.05f, c.y), new Vector3(a.Rect.width * Scale, 0.1f, a.Rect.height * Scale), a.Floor, false, a.Name);
+            Art.Tiled(root, "floor", new Vector3(c.x, 0f, c.y), new Vector2(a.Rect.width, a.Rect.height) * Scale, Art.OrderFloor, a.Floor, a.Name);
         }
-        // 床に2mごとの鋲（広さの目安）
-        for (int z = GZ0; z < GZ0 + GH; z += 2)
-            for (int x = GX0; x < GX0 + GW; x += 2)
-                if (Cell(x, z)) Prims.Box(root, new Vector3((x + 0.5f) * Scale, 0.005f, (z + 0.5f) * Scale), new Vector3(0.12f, 0.01f, 0.12f), Prims.Hex("#1c2226"));
 
         BuildWalls(root);
 
-        // 操作盤
+        // 操作盤と立ち位置
         for (int i = 0; i < Stations.Count; i++)
         {
             var s = Stations.All[i];
-            var pad = Prims.Shape(PrimitiveType.Cylinder, root, new Vector3(s.Pos.x, 0.02f, s.Pos.y), new Vector3(1.5f, 0.02f, 1.5f), s.Color * 0.5f, true, s.Name + " パッド");
-            v.Pads[i] = pad.GetComponent<Renderer>();
-            var cp = s.Pos + s.ConsoleOffset;
-            var console = Prims.Box(root, new Vector3(cp.x, 0.45f, cp.y), new Vector3(1.6f, 0.9f, 1.0f), Prims.Hex("#1d2428"), false, s.Name + " 操作盤");
-            Prims.Box(console.transform, new Vector3(0, 0.52f, 0), new Vector3(0.8f, 0.05f, 0.7f), s.Color, true);
-
-            // 火災（ふだんは非表示）
-            var fire = new GameObject(s.Name + " 火災").transform;
-            fire.SetParent(root, false);
-            fire.localPosition = new Vector3(s.Pos.x, 0f, s.Pos.y);
-            for (int k = 0; k < 3; k++)
+            v.Pads[i] = Art.Place(root, "pad", new Vector3(s.Pos.x, 0.01f, s.Pos.y), Art.OrderPad, s.Color, s.Name + " 立ち位置");
+            if (s.Type != StationType.Core)
             {
-                var f = Prims.Box(fire, new Vector3((k - 1) * 0.45f, 0.4f, (k % 2) * 0.3f - 0.15f), new Vector3(0.4f, 0.8f, 0.4f),
-                    k == 1 ? Prims.Hex("#ffd23f") : Prims.Hex("#ff5a1f"), true);
-                v.FireFlames[i * 3 + k] = f.transform;
+                string sprite = s.Type == StationType.Leg ? "console_leg" : s.Type == StationType.Arm ? "console_arm" : "console_head";
+                var cp = s.Pos + s.ConsoleOffset;
+                Art.Place(root, sprite, new Vector3(cp.x, 0.02f, cp.y), Art.DepthOrder(cp.y - 0.8f), null, s.Name + " 操作盤");
             }
+            var fire = Art.Place(root, "fire_0", new Vector3(s.Pos.x, 0.03f, s.Pos.y + 0.6f), Art.DepthOrder(s.Pos.y - 0.2f), null, s.Name + " 火災");
+            fire.transform.localScale = Vector3.one * 1.2f;
             fire.gameObject.SetActive(false);
-            v.Fires[i] = fire.gameObject;
+            v.Fires[i] = fire;
         }
 
-        // 動力炉の本体
-        var reactor = Prims.Shape(PrimitiveType.Cylinder, root, new Vector3(20f * Scale, 0.8f, 10.6f * Scale), new Vector3(2.4f, 0.8f, 2.4f), Prims.Hex("#ffd23f"), true, "動力炉 本体");
-        v.Reactor = reactor.GetComponent<Renderer>();
-        Prims.Shape(PrimitiveType.Cylinder, root, new Vector3(20f * Scale, 1.65f, 10.6f * Scale), new Vector3(2.9f, 0.08f, 2.9f), Prims.Hex("#1d2428"));
-
-        // 操縦室の窓（外が見える）
-        Prims.Box(root, new Vector3(20f * Scale, 1.0f, 33f * Scale - 0.15f), new Vector3(8f * Scale, 0.6f, 0.2f), Prims.Hex("#5fe8ff"), true, "窓");
-        // 左右の腕室・脚室の外壁に機械っぽいライン
-        Prims.Box(root, new Vector3(0.15f, 0.9f, 17f * Scale), new Vector3(0.2f, 0.3f, 7f * Scale), Prims.Hex("#ff9a3c"), true);
-        Prims.Box(root, new Vector3(40f * Scale - 0.15f, 0.9f, 17f * Scale), new Vector3(0.2f, 0.3f, 7f * Scale), Prims.Hex("#ff9a3c"), true);
-        Prims.Box(root, new Vector3(10.5f * Scale, 0.9f, -8f * Scale + 0.15f), new Vector3(6f * Scale, 0.3f, 0.2f), Prims.Hex("#4fd2ff"), true);
-        Prims.Box(root, new Vector3(29.5f * Scale, 0.9f, -8f * Scale + 0.15f), new Vector3(6f * Scale, 0.3f, 0.2f), Prims.Hex("#4fd2ff"), true);
+        // 動力炉の本体（光る芯は明るさを変えるので別の層）
+        int ro = Art.DepthOrder(ReactorPos.y - 1.2f);
+        Art.Place(root, "reactor_base", new Vector3(ReactorPos.x, 0.02f, ReactorPos.y), ro, null, "動力炉 本体");
+        v.ReactorCore = Art.Place(root, "reactor_core", new Vector3(ReactorPos.x, 0.02f, ReactorPos.y), ro + 1, Prims.Hex("#ffd23f"), "動力炉 芯");
 
         return v;
     }
 
-    /// <summary>歩ける場所と歩けない場所の境目に壁を立てる（同じ列の壁はまとめて1本にする）。</summary>
+    /// <summary>
+    /// 歩ける場所と歩けない場所の境目に壁を立てる（同じ列の壁はまとめて1本にする）。
+    /// 部屋の北側の壁には手前の面（パネル）も描いて、奥行きがあるように見せる。
+    /// </summary>
     static void BuildWalls(Transform root)
     {
-        var wall = Prims.Hex("#56656e");
-        var top = Prims.Hex("#8a9aa3");
-        // 横向きの境目（z = 一定の線）
+        var cap = Prims.Hex("#ffffff");
+        // 横向きの境目（z = 一定の線）。種類 1 = 南側が部屋（北の壁）、2 = 北側が部屋（南の壁）
         for (int z = GZ0; z <= GZ0 + GH; z++)
         {
-            int start = int.MinValue;
-            for (int x = GX0; x <= GX0 + GW; x++)
+            int start = int.MinValue, kind = 0;
+            for (int x = GX0; x <= GX0 + GW + 1; x++)
             {
-                bool edge = Cell(x, z - 1) != Cell(x, z);
-                if (edge && start == int.MinValue) start = x;
-                if (!edge && start != int.MinValue)
+                bool below = Cell(x, z - 1), above = Cell(x, z);
+                int k = below && !above ? 1 : above && !below ? 2 : 0;
+                if (k != kind)
                 {
-                    MakeWall(root, new Vector3((start + x) * 0.5f * Scale, WallH * 0.5f, z * Scale), new Vector3((x - start) * Scale + WallT, WallH, WallT), wall, top);
-                    start = int.MinValue;
+                    if (kind != 0) HWall(root, start, x, z, kind == 1, cap);
+                    start = x;
+                    kind = k;
                 }
             }
         }
@@ -229,22 +214,27 @@ public static class InteriorMap
         for (int x = GX0; x <= GX0 + GW; x++)
         {
             int start = int.MinValue;
-            for (int z = GZ0; z <= GZ0 + GH; z++)
+            for (int z = GZ0; z <= GZ0 + GH + 1; z++)
             {
                 bool edge = Cell(x - 1, z) != Cell(x, z);
                 if (edge && start == int.MinValue) start = z;
                 if (!edge && start != int.MinValue)
                 {
-                    MakeWall(root, new Vector3(x * Scale, WallH * 0.5f, (start + z) * 0.5f * Scale), new Vector3(WallT, WallH, (z - start) * Scale + WallT), wall, top);
+                    float len = (z - start) * Scale + WallT;
+                    Art.Sliced(root, "wall_cap", new Vector3(x * Scale, 0.05f, (start + z) * 0.5f * Scale + WallT * 0.5f), new Vector2(WallT, len), Art.OrderWallCap, cap, "壁");
                     start = int.MinValue;
                 }
             }
         }
     }
 
-    static void MakeWall(Transform root, Vector3 pos, Vector3 size, Color wall, Color top)
+    static void HWall(Transform root, int x0, int x1, int z, bool northWall, Color cap)
     {
-        var w = Prims.Box(root, pos, size, wall);
-        Prims.Box(w.transform, new Vector3(0, 0.5f, 0), new Vector3(1f, 0.04f / size.y, 1f), top);
+        float len = (x1 - x0) * Scale;
+        float cx = (x0 + x1) * 0.5f * Scale;
+        float lineZ = z * Scale;
+        if (northWall)
+            Art.Tiled(root, "wall_face", new Vector3(cx, 0.04f, lineZ - FaceH * 0.5f), new Vector2(len, FaceH), Art.OrderWallFace, null, "壁の面");
+        Art.Sliced(root, "wall_cap", new Vector3(cx, 0.05f, lineZ + WallT * 0.5f), new Vector2(len + WallT, WallT), Art.OrderWallCap, cap, "壁");
     }
 }

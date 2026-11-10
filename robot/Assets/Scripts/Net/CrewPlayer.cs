@@ -33,9 +33,12 @@ public class CrewPlayer : NetworkBehaviour
     public string Label => "P" + (Slot.Value + 1);
 
     Transform m_Avatar;
-    Renderer m_Body;
-    Transform m_LegL, m_LegR;
-    float m_Walk, m_Facing;
+    SpriteRenderer m_Body, m_Detail, m_Shadow;
+    float m_Walk;
+    bool m_FacingRight = true;
+
+    // 絵の足元が、128px の絵の下端から 8px 上にある。立ち位置に足元が来るよう上にずらす
+    const float SpriteLift = 1f - 8f / Art.PixelsPerUnit;
 
     public override void OnNetworkSpawn()
     {
@@ -74,17 +77,14 @@ public class CrewPlayer : NetworkBehaviour
     {
         m_Avatar = new GameObject("Avatar").transform;
         m_Avatar.SetParent(transform, false);
-        var body = Prims.Shape(PrimitiveType.Capsule, m_Avatar, new Vector3(0, 0.75f, 0), new Vector3(0.75f, 0.5f, 0.75f), Color.white);
-        m_Body = body.GetComponent<Renderer>();
-        Prims.Box(m_Avatar, new Vector3(0, 0.95f, 0.3f), new Vector3(0.5f, 0.22f, 0.15f), Prims.Hex("#9fe9ff"), true, "Visor");
-        Prims.Box(m_Avatar, new Vector3(0, 0.7f, -0.38f), new Vector3(0.45f, 0.45f, 0.2f), Prims.Hex("#2a3236"), false, "Pack");
-        m_LegL = Prims.Box(m_Avatar, new Vector3(-0.17f, 0.15f, 0), new Vector3(0.2f, 0.3f, 0.22f), Prims.Hex("#2a3236")).transform;
-        m_LegR = Prims.Box(m_Avatar, new Vector3(0.17f, 0.15f, 0), new Vector3(0.2f, 0.3f, 0.22f), Prims.Hex("#2a3236")).transform;
+        m_Shadow = Art.Place(transform, "shadow", new Vector3(0f, 0.02f, 0f), Art.OrderShadow, null, "Shadow");
+        m_Body = Art.Place(m_Avatar, "pilot_body_0", new Vector3(0f, 0.05f, SpriteLift), Art.OrderObjects, null, "Body");
+        m_Detail = Art.Place(m_Avatar, "pilot_detail_0", new Vector3(0f, 0.06f, SpriteLift), Art.OrderObjects + 1, null, "Detail");
     }
 
     void ApplyColor()
     {
-        if (m_Body) Prims.SetColor(m_Body, Color);
+        if (m_Body) m_Body.color = Color;
     }
 
     void Update()
@@ -99,17 +99,28 @@ public class CrewPlayer : NetworkBehaviour
 
         var moved = DisplayPos - prev;
         bool walking = moved.sqrMagnitude > 0.00001f;
-        if (walking) m_Facing = Mathf.Atan2(moved.x, moved.y) * Mathf.Rad2Deg;
-        if (Station.Value >= 0) m_Facing = Mathf.Atan2(Stations.All[Station.Value].ConsoleOffset.x, Stations.All[Station.Value].ConsoleOffset.y) * Mathf.Rad2Deg;
-        m_Walk = walking ? m_Walk + Time.deltaTime * 14f : Mathf.MoveTowards(m_Walk, Mathf.Round(m_Walk / Mathf.PI) * Mathf.PI, Time.deltaTime * 10f);
+        // 絵は右向き。左へ動いたら左右反転。席に座っているときは操作盤のほうを向く
+        if (moved.x > 0.001f) m_FacingRight = true;
+        else if (moved.x < -0.001f) m_FacingRight = false;
+        if (Station.Value >= 0)
+        {
+            float ox = Stations.All[Station.Value].ConsoleOffset.x;
+            if (ox > 0.01f) m_FacingRight = true; else if (ox < -0.01f) m_FacingRight = false;
+        }
+        m_Walk = walking ? m_Walk + Time.deltaTime * 14f : 0f;
 
         transform.position = InteriorMap.ToWorld(DisplayPos);
         if (m_Avatar)
         {
-            m_Avatar.localRotation = Quaternion.Euler(0, m_Facing, 0);
-            m_Avatar.localPosition = new Vector3(0, Mathf.Abs(Mathf.Sin(m_Walk)) * 0.12f, 0);
-            m_LegL.localRotation = Quaternion.Euler(Mathf.Sin(m_Walk) * 35f, 0, 0);
-            m_LegR.localRotation = Quaternion.Euler(-Mathf.Sin(m_Walk) * 35f, 0, 0);
+            int frame = walking ? 1 + (int)(m_Walk / Mathf.PI) % 2 : 0;
+            m_Body.sprite = Art.Get("pilot_body_" + frame);
+            m_Detail.sprite = Art.Get("pilot_detail_" + frame);
+            m_Body.flipX = m_Detail.flipX = !m_FacingRight;
+            // 画面の下にいる人ほど手前に描く
+            int order = Art.DepthOrder(DisplayPos.y);
+            m_Body.sortingOrder = order;
+            m_Detail.sortingOrder = order + 1;
+            m_Avatar.localPosition = new Vector3(0f, 0f, Mathf.Abs(Mathf.Sin(m_Walk)) * 0.08f);
         }
     }
 
