@@ -31,7 +31,8 @@ public static class Art
                 tex = Texture2D.whiteTexture;
             }
             var border = name == "wall_cap" ? new Vector4(8, 8, 8, 8) : name == "piston" ? new Vector4(0, 24, 0, 24) : Vector4.zero;
-            s = Sprite.Create(tex, new Rect(0, 0, tex.width, tex.height), new Vector2(0.5f, 0.5f), PixelsPerUnit, 0, SpriteMeshType.FullRect, border);
+            float ppu = name.StartsWith("robot_") ? InteriorMap.LayerPixelsPerUnit : PixelsPerUnit;
+            s = Sprite.Create(tex, new Rect(0, 0, tex.width, tex.height), new Vector2(0.5f, 0.5f), ppu, 0, SpriteMeshType.FullRect, border);
         }
         s_Cache[name] = s;
         return s;

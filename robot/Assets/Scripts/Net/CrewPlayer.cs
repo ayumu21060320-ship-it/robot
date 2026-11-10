@@ -13,7 +13,9 @@ public class CrewPlayer : NetworkBehaviour
     public static readonly List<CrewPlayer> All = new List<CrewPlayer>();
     public static readonly Color[] Colors = { Prims.Hex("#3fb6ff"), Prims.Hex("#ff5a8a"), Prims.Hex("#7dff6a"), Prims.Hex("#c08bff") };
 
-    const float Speed = 6f;
+    const float Speed = 6f;        // 足場を歩く速さ
+    const float ClimbSpeed = 4.5f; // はしごを登る速さ
+    const float Gravity = 30f;
     public const float Radius = 0.35f;
     public const float UseRange = 1.6f;
 
@@ -38,6 +40,8 @@ public class CrewPlayer : NetworkBehaviour
     SpriteRenderer m_Body, m_Detail, m_Shadow;
     float m_Walk;
     bool m_FacingRight = true;
+    int m_Ladder = -1;   // 登っているはしご（本人だけが使う）
+    float m_FallSpeed;
 
     // 絵の足元が、128px の絵の下端から 8px 上にある。立ち位置に足元が来るよう上にずらす
     const float SpriteLift = 1f - 8f / Art.PixelsPerUnit;
@@ -49,7 +53,7 @@ public class CrewPlayer : NetworkBehaviour
         if (IsOwner)
         {
             Local = this;
-            Pos.Value = InteriorMap.Spawn + new Vector2(((int)(OwnerClientId % 4) - 1.5f) * 1.4f, 0f);
+            Pos.Value = InteriorMap.Spawn + new Vector2(((int)(OwnerClientId % 4) - 1.5f) * 1.2f, 0f);
         }
         DisplayPos = Pos.Value;
         BuildAvatar();
@@ -79,9 +83,10 @@ public class CrewPlayer : NetworkBehaviour
     {
         m_Avatar = new GameObject("Avatar").transform;
         m_Avatar.SetParent(transform, false);
-        m_Shadow = Art.Place(transform, "shadow", new Vector3(0f, 0.02f, 0f), Art.OrderShadow, null, "Shadow");
-        m_Body = Art.Place(m_Avatar, "pilot_body_0", new Vector3(0f, 0.05f, SpriteLift), Art.OrderObjects, null, "Body");
-        m_Detail = Art.Place(m_Avatar, "pilot_detail_0", new Vector3(0f, 0.06f, SpriteLift), Art.OrderObjects + 1, null, "Detail");
+        m_Shadow = Art.Place(transform, "shadow", new Vector3(0f, 0.02f, 0.05f), InteriorMap.OrderPilot - 1, null, "Shadow");
+        m_Shadow.transform.localScale = new Vector3(0.6f, 0.5f, 1f);
+        m_Body = Art.Place(m_Avatar, "pilot_body_0", new Vector3(0f, 0.05f, SpriteLift), InteriorMap.OrderPilot, null, "Body");
+        m_Detail = Art.Place(m_Avatar, "pilot_detail_0", new Vector3(0f, 0.06f, SpriteLift), InteriorMap.OrderPilot + 1, null, "Detail");
     }
 
     void ApplyColor()
@@ -100,7 +105,7 @@ public class CrewPlayer : NetworkBehaviour
         else DisplayPos = Vector2.Lerp(DisplayPos, target, 1f - Mathf.Exp(-15f * Time.deltaTime));
 
         var moved = DisplayPos - prev;
-        bool walking = moved.sqrMagnitude > 0.00001f;
+        bool walking = Mathf.Abs(moved.x) > 0.0005f || Mathf.Abs(moved.y) > 0.0005f;
         // 絵は右向き。左へ動いたら左右反転。席に座っているときは操作盤のほうを向く
         if (moved.x > 0.001f) m_FacingRight = true;
         else if (moved.x < -0.001f) m_FacingRight = false;
@@ -118,12 +123,56 @@ public class CrewPlayer : NetworkBehaviour
             m_Body.sprite = Art.Get("pilot_body_" + frame);
             m_Detail.sprite = Art.Get("pilot_detail_" + frame);
             m_Body.flipX = m_Detail.flipX = !m_FacingRight;
-            // 画面の下にいる人ほど手前に描く
-            int order = Art.DepthOrder(DisplayPos.y);
-            m_Body.sortingOrder = order;
-            m_Detail.sortingOrder = order + 1;
-            m_Avatar.localPosition = new Vector3(0f, 0f, Mathf.Abs(Mathf.Sin(m_Walk)) * 0.08f);
+            // 落ちているあいだと、はしごの途中では影を消す
+            m_Shadow.enabled = InteriorMap.OnFloor(DisplayPos.x, DisplayPos.y, 0.05f, out _);
+            m_Avatar.localPosition = new Vector3(0f, 0f, m_Shadow.enabled ? Mathf.Abs(Mathf.Sin(m_Walk)) * 0.08f : 0f);
         }
+    }
+
+    /// <summary>
+    /// 横から見た断面図での移動。足場の上を A/D で歩き、はしごの前で W/S を押すと登り降りする。
+    /// 足場のないところでは落ちる。
+    /// </summary>
+    Vector2 MoveSideView(Vector2 p, Vector2 mv, float dt)
+    {
+        if (m_Ladder >= 0)
+        {
+            var l = InteriorMap.Ladders[m_Ladder];
+            p.x = l.X;
+            p.y = Mathf.Clamp(p.y + mv.y * ClimbSpeed * dt, l.Y0, l.Y1);
+            bool atFloor = InteriorMap.OnFloor(p.x, p.y, 0.3f, out float fy);
+            // 足場の高さで左右に入力すると、はしごから降りて歩き出す
+            if (atFloor && Mathf.Abs(mv.x) > 0.5f && Mathf.Abs(mv.y) < 0.5f) { p.y = fy; m_Ladder = -1; }
+            // 下の端・上の端まで行ったら足場に立つ
+            else if ((mv.y < -0.1f && p.y <= l.Y0 + 0.001f) || (mv.y > 0.1f && p.y >= l.Y1 - 0.001f)) m_Ladder = -1;
+            return p;
+        }
+
+        // はしごにつかまる（上なら W、下なら S）
+        if (Mathf.Abs(mv.y) > 0.5f && Mathf.Abs(mv.y) >= Mathf.Abs(mv.x))
+        {
+            int li = InteriorMap.LadderNear(p.x, p.y, mv.y > 0f);
+            if (li >= 0) { m_Ladder = li; m_FallSpeed = 0f; p.x = InteriorMap.Ladders[li].X; return p; }
+        }
+
+        // 左右に歩く（今いる足場の端から先へは出ない）
+        int cw = InteriorMap.CatwalkAt(p.x, p.y);
+        float nx = p.x + mv.x * Speed * dt;
+        if (cw >= 0) nx = Mathf.Clamp(nx, InteriorMap.Catwalks[cw].X0 + Radius, InteriorMap.Catwalks[cw].X1 - Radius);
+        p.x = nx;
+
+        // 重力
+        if (InteriorMap.OnFloor(p.x, p.y, 0.01f, out float floor)) { p.y = floor; m_FallSpeed = 0f; }
+        else
+        {
+            m_FallSpeed += Gravity * dt;
+            float ny = p.y - m_FallSpeed * dt;
+            if (InteriorMap.FloorBetween(p.x, p.y, ny, out float land)) { p.y = land; m_FallSpeed = 0f; }
+            else p.y = ny;
+            // 万一体の外まで落ちたらスタート地点へ戻す
+            if (p.y < InteriorMap.Bounds.yMin - 5f) { p = InteriorMap.Spawn; m_FallSpeed = 0f; }
+        }
+        return p;
     }
 
     void OwnerUpdate()
@@ -168,7 +217,7 @@ public class CrewPlayer : NetworkBehaviour
 
         if (st < 0)
         {
-            Pos.Value = InteriorMap.Move(Pos.Value, mv * Speed * Time.deltaTime, Radius);
+            Pos.Value = MoveSideView(Pos.Value, mv, Time.deltaTime);
             if (Stick.Value != Vector2.zero) Stick.Value = Vector2.zero;
             NearStation = InteriorMap.NearestStation(Pos.Value, UseRange);
             NearTask = NearStation < 0 ? Tasks.Nearest(Pos.Value, UseRange) : -1;
@@ -187,6 +236,8 @@ public class CrewPlayer : NetworkBehaviour
         {
             var sp = Stations.All[st].Pos;
             if (Pos.Value != sp) Pos.Value = sp;
+            m_Ladder = -1;
+            m_FallSpeed = 0f;
             if (Stick.Value != mv) Stick.Value = mv;
             NearStation = st;
             NearTask = -1;

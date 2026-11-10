@@ -348,9 +348,9 @@ public class GameBootstrap : MonoBehaviour
         if (!string.IsNullOrEmpty(m_Status)) GUILayout.Label("<color=#ffb000>" + m_Status + "</color>", m_Label);
         GUILayout.FlexibleSpace();
 #if HAS_NETCODE
-        GUILayout.Label("操作：WASD / 矢印で移動　E で席に乗る・降りる　Space でアクション　Tab で内部の全体図\n同じPCで試すときはアドレス 127.0.0.1 のまま。ネット越しに遊ぶ招待コード方式（Relay）は次の段階で追加します。", m_Small);
+        GUILayout.Label("操作：A/D で足場を歩く　はしごの前で W/S で登り降り　E で席に乗る・降りる　Space でアクション　Tab で内部の全体図\n同じPCで試すときはアドレス 127.0.0.1 のまま。ネット越しに遊ぶ招待コード方式（Relay）は次の段階で追加します。", m_Small);
 #else
-        GUILayout.Label("操作：WASD / 矢印で移動　E で席に乗る・降りる　Space でアクション　Tab で内部の全体図", m_Small);
+        GUILayout.Label("操作：A/D で足場を歩く　はしごの前で W/S で登り降り　E で席に乗る・降りる　Space でアクション　Tab で内部の全体図", m_Small);
 #endif
         GUILayout.EndArea();
     }
@@ -424,55 +424,28 @@ public class GameBootstrap : MonoBehaviour
         // 地図上の点（メートル）→ 画面上の位置。z が上向きなので y は反転する
         Vector2 ToMap(Vector2 p) => new Vector2(ox + (p.x - b.xMin) * k, oy + (b.yMax - p.y) * k);
 
-        // ロボットの外形（装甲）
-        foreach (var (rect, color) in InteriorMap.ArmorOnly)
-        {
-            var bmin = ToMap(new Vector2(rect.xMin, rect.yMax) * InteriorMap.Scale);
-            var bmax = ToMap(new Vector2(rect.xMax, rect.yMin) * InteriorMap.Scale);
-            DrawRect(Rect.MinMaxRect(bmin.x, bmin.y, bmax.x, bmax.y), new Color(color.r * 0.6f, color.g * 0.6f, color.b * 0.6f, 1f));
-        }
-        foreach (var a in InteriorMap.Areas)
-        {
-            var ar = InteriorMap.ArmorRect(a);
-            var amin = ToMap(new Vector2(ar.xMin, ar.yMax));
-            var amax = ToMap(new Vector2(ar.xMax, ar.yMin));
-            var ac = a.Armor * 0.6f;
-            ac.a = 1f;
-            DrawRect(Rect.MinMaxRect(amin.x, amin.y, amax.x, amax.y), ac);
-        }
-        foreach (var a in InteriorMap.Areas)
-        {
-            var min = ToMap(new Vector2(a.Rect.xMin, a.Rect.yMax) * InteriorMap.Scale);
-            var max = ToMap(new Vector2(a.Rect.xMax, a.Rect.yMin) * InteriorMap.Scale);
-            DrawRect(Rect.MinMaxRect(min.x, min.y, max.x, max.y), new Color(a.Floor.r * 0.8f, a.Floor.g * 0.8f, a.Floor.b * 0.8f, 1f));
-        }
+        // ロボットの体の絵（装甲と内部）をそのまま縮めて描く
+        var lr = InteriorMap.Bounds;
+        var lmin = ToMap(new Vector2(lr.xMin, lr.yMax));
+        var lmax = ToMap(new Vector2(lr.xMax, lr.yMin));
+        var lrect = Rect.MinMaxRect(lmin.x, lmin.y, lmax.x, lmax.y);
+        GUI.DrawTexture(lrect, Art.Get("robot_armor").texture);
+        var oldc = GUI.color;
+        GUI.color = new Color(1f, 1f, 1f, 0.9f);
+        GUI.DrawTexture(lrect, Art.Get("robot_back").texture);
+        GUI.color = oldc;
 
-        for (int i = 0; i < Stations.Count; i++)
+        // 足場とはしご
+        foreach (var c in InteriorMap.Catwalks)
         {
-            var def = Stations.All[i];
-            var c = ToMap(def.Pos);
-            bool fire = rs != null && rs.FireHp.Count == Stations.Count && rs.FireHp[i] > 0;
-            bool taken = rs != null && rs.Occupant.Count == Stations.Count && rs.Occupant[i] != 0;
-            float d = (fire ? 9f : 7f) * s;
-            var col = fire ? (Mathf.Sin(Time.time * 12f) > 0f ? new Color(1f, 0.3f, 0.1f) : new Color(0.5f, 0.08f, 0.03f))
-                           : taken ? def.Color : def.Color * 0.6f;
-            DrawRect(new Rect(c.x - d * 0.5f, c.y - d * 0.5f, d, d), col);
+            var a0 = ToMap(new Vector2(c.X0, c.Y)); var a1 = ToMap(new Vector2(c.X1, c.Y));
+            DrawRect(new Rect(a0.x, a0.y - 1f, a1.x - a0.x, Mathf.Max(2f, 2f * s)), new Color(0.75f, 0.8f, 0.85f, 0.9f));
         }
-
-        // いま左の画面に映っている範囲
-        var cam = m_InteriorCam;
-        float halfH = cam.orthographicSize, halfW = halfH * cam.aspect;
-        var cp = new Vector2(cam.transform.position.x - InteriorMap.Origin.x, cam.transform.position.z - InteriorMap.Origin.z);
-        var v0 = ToMap(cp + new Vector2(-halfW, halfH));
-        var v1 = ToMap(cp + new Vector2(halfW, -halfH));
-        var view = Rect.MinMaxRect(Mathf.Max(v0.x, ox), Mathf.Max(v0.y, oy), Mathf.Min(v1.x, ox + w), Mathf.Min(v1.y, oy + h));
-        var line = new Color(1f, 1f, 1f, 0.55f);
-        float t = Mathf.Max(1f, 1.5f * s);
-        DrawRect(new Rect(view.x, view.y, view.width, t), line);
-        DrawRect(new Rect(view.x, view.yMax - t, view.width, t), line);
-        DrawRect(new Rect(view.x, view.y, t, view.height), line);
-        DrawRect(new Rect(view.xMax - t, view.y, t, view.height), line);
-
+        foreach (var l in InteriorMap.Ladders)
+        {
+            var b0 = ToMap(new Vector2(l.X, l.Y1)); var b1 = ToMap(new Vector2(l.X, l.Y0));
+            DrawRect(new Rect(b0.x - 1f, b0.y, Mathf.Max(2f, 2f * s), b1.y - b0.y), new Color(0.95f, 0.71f, 0.19f, 0.9f));
+        }
         if (rs != null && Mathf.Sin(Time.time * 8f) > -0.3f)
         {
             for (int i = 0; i < Tasks.Count; i++)
@@ -601,7 +574,7 @@ public class GameBootstrap : MonoBehaviour
         else
         {
             where = InteriorMap.AreaName(me.Pos.Value);
-            hint = rs.TasksBroken > 0 ? "WASD で移動。故障した装置（赤い ！）を直そう" : "WASD で移動。光っている操作盤に近づこう";
+            hint = rs.TasksBroken > 0 ? "A/D で歩く・はしごは W/S。故障した装置（赤い ！）を直そう" : "A/D で歩く・はしごは W/S。光っている席に近づこう";
         }
         float w = Mathf.Min(Screen.width * 0.5f - 24 * s, 520 * s), h = 76 * s;
         var r = new Rect(12 * s, Screen.height - h - 12 * s, w, h);

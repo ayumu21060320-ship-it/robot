@@ -18,10 +18,13 @@ public class ArtImporter : AssetPostprocessor
 
         ti.textureType = TextureImporterType.Sprite;
         ti.spriteImportMode = SpriteImportMode.Single;
-        ti.spritePixelsPerUnit = Art.PixelsPerUnit;
+        bool bigLayer = name.StartsWith("robot_"); // ロボット全体の大きな絵（robot_layers.py）
+        ti.spritePixelsPerUnit = bigLayer ? InteriorMap.LayerPixelsPerUnit : Art.PixelsPerUnit;
+        if (bigLayer) ti.maxTextureSize = 4096;
         ti.mipmapEnabled = false;
         ti.alphaIsTransparency = true;
-        ti.textureCompression = TextureImporterCompression.Uncompressed;
+        // 大きな絵は高画質の圧縮（メモリを抑える）、小さな絵は圧縮しない
+        ti.textureCompression = bigLayer ? TextureImporterCompression.CompressedHQ : TextureImporterCompression.Uncompressed;
         ti.filterMode = FilterMode.Bilinear;
         ti.wrapMode = name == "floor" || name == "wall_face" ? TextureWrapMode.Repeat : TextureWrapMode.Clamp;
 

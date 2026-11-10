@@ -468,6 +468,175 @@ def valve_wheel():
     return finish(img)
 
 
+# ------------------------------------------------------------------ 横から見た断面図用（足場・はしご・ケーブル）
+
+def catwalk():
+    """足場（横に繰り返す。2m x 1.5m）。床の上面は絵の下から 18px（Unity 側の CatwalkFloorPx と合わせる）。"""
+    W, H = 128, 96
+    img = canvas(W, H)
+    d = ImageDraw.Draw(img)
+    floor = H - 18
+    # 手すり
+    rr(d, (-4, 22, W + 4, 30), 3, fill=(242, 182, 48, 255), outline=INK, width=3)
+    for x in (12, 76):
+        rr(d, (x, 24, x + 7, floor), 2, fill=(242, 182, 48, 255), outline=INK, width=3)
+    line(d, [(-4, 52), (W + 4, 52)], fill=(200, 150, 40, 255), width=3)
+    # 床（グレーチング）
+    rr(d, (-4, floor, W + 4, H - 2), 2, fill=(124, 136, 148, 255), outline=INK, width=3)
+    for x in range(2, W, 8):
+        line(d, [(x, floor + 4), (x, H - 6)], fill=(64, 72, 80, 255), width=2)
+    # 下の補強
+    for x in (20, 84):
+        poly(d, [(x, H - 2), (x + 24, H - 2), (x + 12, H + 6)], fill=(90, 100, 110, 255))
+    return finish(img)
+
+
+def ladder_tile():
+    """はしご（縦に繰り返す。1m x 1m）。"""
+    S = 64
+    img = canvas(S, S)
+    d = ImageDraw.Draw(img)
+    for x in (12, S - 12):
+        line(d, [(x, -4), (x, S + 4)], fill=INK, width=9)
+        line(d, [(x, -4), (x, S + 4)], fill=(242, 182, 48, 255), width=5)
+    for y in (16, 48):
+        line(d, [(12, y), (S - 12, y)], fill=INK, width=7)
+        line(d, [(12, y), (S - 12, y)], fill=(242, 182, 48, 255), width=4)
+    return finish(img)
+
+
+CABLE_BACK = [(70, 74, 80, 255), (200, 52, 44, 255), (150, 156, 162, 255), (46, 50, 56, 255), (210, 212, 214, 255)]
+CABLE_FRONT = [(150, 30, 26, 255), (36, 40, 46, 255), (170, 130, 10, 255), (36, 64, 140, 255), (90, 92, 98, 255)]
+
+
+def cable_run():
+    """フレームに沿って走るケーブルの束（縦に繰り返す。0.75m x 1m）。クランプで留めてある。"""
+    W, H = 48, 64
+    img = canvas(W, H)
+    d = ImageDraw.Draw(img)
+    for i, col in enumerate(CABLE_BACK):
+        x = 8 + i * 8
+        line(d, [(x, -4), (x, H + 4)], fill=INK, width=8)
+        line(d, [(x, -4), (x, H + 4)], fill=col, width=5)
+    rr(d, (2, 24, W - 2, 36), 3, fill=(150, 160, 170, 255), outline=INK, width=3)
+    ell(d, (W / 2 - 3, 27, W / 2 + 3, 33), fill=INK)
+    return finish(img)
+
+
+def cable_hang(variant, front):
+    """垂れ下がったケーブル（4m x 1.6m）。front=True は手前用の濃い色。"""
+    W, H = 256, 104
+    img = canvas(W, H)
+    d = ImageDraw.Draw(img)
+    rnd = __import__("random").Random(variant * 7 + (1 if front else 0))
+    cols = CABLE_FRONT if front else CABLE_BACK
+    n = rnd.choice((2, 3)) if front else rnd.choice((3, 4, 5))
+    for k in range(n):
+        x0 = 6 + k * 4 + rnd.uniform(0, 10)
+        x1 = W - 6 - k * 4 - rnd.uniform(0, 10)
+        sag = rnd.uniform(40, 86)
+        y0 = 8 + k * 3
+        pts = [(x0 + (x1 - x0) * t, y0 + math.sin(math.pi * t) * sag) for t in [i / 30 for i in range(31)]]
+        line(d, pts, fill=INK, width=10 if front else 8)
+        line(d, pts, fill=cols[(k + variant) % len(cols)], width=6 if front else 4)
+    for x in (4, W - 14):
+        rr(d, (x, 2, x + 10, 18), 3, fill=(150, 160, 170, 255), outline=INK, width=3)
+    return finish(img)
+
+
+def cable_drop(front):
+    """ちぎれて垂れたケーブルの先（0.5m x 2.5m）。"""
+    W, H = 32, 160
+    img = canvas(W, H)
+    d = ImageDraw.Draw(img)
+    pts = [(16 + math.sin(i * 0.7) * 5, 4 + i * 16) for i in range(9)]
+    line(d, pts, fill=INK, width=10 if front else 8)
+    line(d, pts, fill=(150, 30, 26, 255) if front else (120, 124, 130, 255), width=6 if front else 4)
+    rr(d, (8, 130, 24, 150), 3, fill=(170, 174, 180, 255), outline=INK, width=3)
+    return finish(img)
+
+
+# ------------------------------------------------------------------ 外側の装甲パーツ（白で描き、Unity 側で部位の色を掛ける）
+
+ARMOR_HI = (255, 255, 255, 255)
+ARMOR_MID = (214, 218, 222, 255)
+ARMOR_LO = (150, 156, 164, 255)
+FRAME = (70, 78, 88, 255)
+
+
+def armor_hand():
+    """左手（正面から見て、指を下に垂らした手）。右手は左右反転して使う。192x256。"""
+    W, H = 192, 256
+    img = canvas(W, H)
+    d = ImageDraw.Draw(img)
+    # 手首のカフ
+    rr(d, (44, 4, 148, 44), 10, fill=ARMOR_MID, outline=INK)
+    rr(d, (52, 10, 140, 20), 4, fill=ARMOR_HI)
+    # 手首の関節（フレーム）
+    rr(d, (70, 40, 122, 60), 6, fill=FRAME, outline=INK, width=4)
+    # 手の甲
+    poly(d, [(36, 58), (156, 58), (164, 128), (28, 128)], fill=ARMOR_MID, outline=INK)
+    poly(d, [(44, 64), (148, 64), (152, 84), (40, 84)], fill=ARMOR_HI)
+    rr(d, (80, 92, 112, 116), 6, fill=(242, 182, 48, 255), outline=INK, width=4)
+    # 4本の指（関節ごとに分かれている）
+    for i in range(4):
+        x = 34 + i * 33
+        segs = [(128, 168), (172, 206), (210, 238)] if i in (1, 2) else [(128, 162), (166, 196), (200, 226)]
+        # 指の骨組み（関節のすき間から見える）
+        rr(d, (x + 7, 120, x + 19, segs[-1][1] - 4), 5, fill=FRAME, outline=INK, width=3)
+        for j, (y0, y1) in enumerate(segs):
+            inset = j * 2
+            rr(d, (x + inset, y0, x + 26 - inset, y1), 7, fill=ARMOR_MID if j % 2 == 0 else ARMOR_HI, outline=INK, width=4)
+    # 親指（体の内側 = 右側）
+    poly(d, [(156, 88), (184, 110), (180, 150), (162, 160), (150, 128)], fill=ARMOR_MID, outline=INK)
+    rr(d, (160, 150, 184, 186), 8, fill=ARMOR_HI, outline=INK, width=4)
+    return finish(img)
+
+
+def armor_joint():
+    """丸い関節（2m）。外側のリング・ボルト・中心の軸。"""
+    S = 128
+    img = canvas(S, S)
+    d = ImageDraw.Draw(img)
+    c = S / 2
+    ell(d, (4, 4, S - 4, S - 4), fill=ARMOR_MID, outline=INK, width=5)
+    ell(d, (14, 14, S - 14, S - 14), fill=FRAME, outline=INK, width=4)
+    for k in range(8):
+        a = k / 8 * math.tau
+        x, y = c + math.cos(a) * 54, c + math.sin(a) * 54
+        ell(d, (x - 4, y - 4, x + 4, y + 4), fill=ARMOR_LO, outline=INK, width=2)
+    ell(d, (34, 34, S - 34, S - 34), fill=ARMOR_LO, outline=INK, width=4)
+    ell(d, (50, 50, S - 50, S - 50), fill=(242, 182, 48, 255), outline=INK, width=4)
+    ell(d, (20, 18, 52, 40), fill=(255, 255, 255, 90))
+    return finish(img)
+
+
+def armor_pauldron():
+    """肩アーマー（左肩用。右は反転）。正面から見た張り出した形。256x192。"""
+    W, H = 256, 192
+    img = canvas(W, H)
+    d = ImageDraw.Draw(img)
+    poly(d, [(40, 30), (200, 10), (246, 60), (236, 150), (120, 182), (16, 150), (10, 70)], fill=ARMOR_MID, outline=INK)
+    poly(d, [(46, 40), (196, 22), (232, 62), (60, 82)], fill=ARMOR_HI)
+    poly(d, [(20, 140), (120, 170), (230, 142), (232, 156), (120, 184), (18, 154)], fill=ARMOR_LO)
+    for x, y in ((40, 100), (120, 120), (200, 100)):
+        ell(d, (x - 6, y - 6, x + 6, y + 6), fill=ARMOR_LO, outline=INK, width=3)
+    line(d, [(60, 82), (232, 62)], fill=INK, width=3)
+    return finish(img)
+
+
+def armor_boot():
+    """足首から下のブーツ（正面）。下が広い。256x160。"""
+    W, H = 256, 160
+    img = canvas(W, H)
+    d = ImageDraw.Draw(img)
+    poly(d, [(60, 6), (196, 6), (214, 70), (250, 126), (250, 154), (6, 154), (6, 126), (42, 70)], fill=ARMOR_MID, outline=INK)
+    poly(d, [(66, 12), (190, 12), (204, 60), (52, 60)], fill=ARMOR_HI)
+    rr(d, (10, 128, 246, 150), 4, fill=ARMOR_LO)
+    rr(d, (104, 74, 152, 104), 6, fill=(242, 182, 48, 255), outline=INK, width=4)
+    return finish(img)
+
+
 # ------------------------------------------------------------------ 書き出し
 
 def build():
@@ -500,6 +669,18 @@ def build():
         out["task_" + k] = task_panel(k)
     out["alert"] = alert()
     out["valve_wheel"] = valve_wheel()
+    out["catwalk"] = catwalk()
+    out["ladder"] = ladder_tile()
+    out["cable_run"] = cable_run()
+    for v in range(3):
+        out[f"cable_back_{v}"] = cable_hang(v, False)
+        out[f"cable_front_{v}"] = cable_hang(v, True)
+    out["cable_drop_back"] = cable_drop(False)
+    out["cable_drop_front"] = cable_drop(True)
+    out["armor_hand"] = armor_hand()
+    out["armor_joint"] = armor_joint()
+    out["armor_pauldron"] = armor_pauldron()
+    out["armor_boot"] = armor_boot()
     for name, img in out.items():
         img.save(os.path.join(OUT, name + ".png"))
     return out
