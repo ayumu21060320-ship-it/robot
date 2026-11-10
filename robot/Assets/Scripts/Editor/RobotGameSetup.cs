@@ -23,6 +23,7 @@ public static class RobotGameSetup
     {
         if (!EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo()) return;
 
+        ArtImporter.Reimport(); // 内部のイラストをスプライトとして取り込み直しておく
         EnsureFolder(Root);
         EnsureFolder(Root + "/Materials");
         EnsureFolder(Root + "/Prefabs");

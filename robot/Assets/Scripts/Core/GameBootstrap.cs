@@ -102,7 +102,7 @@ public class GameBootstrap : MonoBehaviour
         bool overview = Keyboard.current != null && Keyboard.current.tabKey.isPressed;
         var local = CrewPlayer.Local;
         Vector2 focus = overview || local == null ? InteriorMap.Center : local.DisplayPos;
-        float size = overview || local == null ? 23f : 9f;
+        float size = overview || local == null ? 23f * InteriorMap.Scale : 9f;
         m_IntSize = Mathf.Lerp(m_IntSize, size, 1f - Mathf.Exp(-8f * dt));
         m_InteriorCam.orthographicSize = m_IntSize;
         var want = InteriorMap.ToWorld(focus, 30f);
@@ -139,19 +139,20 @@ public class GameBootstrap : MonoBehaviour
         {
             bool fire = rs != null && rs.FireHp.Count == Stations.Count && rs.FireHp[i] > 0;
             bool occupied = rs != null && rs.Occupant.Count == Stations.Count && rs.Occupant[i] != 0;
-            if (m_Interior.Fires[i].activeSelf != fire) m_Interior.Fires[i].SetActive(fire);
-            if (fire)
-                for (int f = 0; f < 3; f++)
-                    m_Interior.FireFlames[i * 3 + f].localScale = new Vector3(0.4f, Random.Range(0.5f, 1.3f), 0.4f);
+            var fireSprite = m_Interior.Fires[i];
+            if (fireSprite.gameObject.activeSelf != fire) fireSprite.gameObject.SetActive(fire);
+            if (fire) fireSprite.sprite = Art.Get(((int)(Time.time * 8f) + i) % 2 == 0 ? "fire_0" : "fire_1");
+            // 立ち位置：使用中は席の色で明るく、空いているときはゆっくり点滅、火災中は暗い赤
             var c = Stations.All[i].Color;
-            float pulse = 0.45f + Mathf.Sin(Time.time * 3f + i) * 0.12f;
-            Prims.SetColor(m_Interior.Pads[i], fire ? Prims.Hex("#401008") : occupied ? c : c * pulse);
+            float pulse = 0.55f + Mathf.Sin(Time.time * 3f + i) * 0.15f;
+            var padColor = fire ? Prims.Hex("#5a2a20") : occupied ? c : Color.Lerp(Prims.Hex("#6a747c"), c, pulse);
+            m_Interior.Pads[i].color = padColor;
         }
         if (rs != null)
         {
             float p = rs.Power.Value / RobotState.MaxPower;
-            var rc = p < 0.2f && Mathf.Sin(Time.time * 10f) > 0f ? Prims.Hex("#ff6a4a") : Color.Lerp(Prims.Hex("#4a3a10"), Prims.Hex("#ffd23f"), p);
-            Prims.SetColor(m_Interior.Reactor, rc);
+            var rc = p < 0.2f && Mathf.Sin(Time.time * 10f) > 0f ? Prims.Hex("#ff6a4a") : Color.Lerp(Prims.Hex("#5a4a2a"), Prims.Hex("#ffd23f"), p);
+            m_Interior.ReactorCore.color = rc;
 
             // ホストは R で再出撃
             if (networkManager.IsServer && rs.GameState.Value != RobotState.Playing &&
@@ -278,6 +279,7 @@ public class GameBootstrap : MonoBehaviour
         }
         DrawSplitLine();
         DrawInteriorLabels();
+        DrawMinimap();
         DrawStatus();
         DrawPrompt();
         DrawEnd();
@@ -354,7 +356,8 @@ public class GameBootstrap : MonoBehaviour
         for (int i = 0; i < Stations.Count; i++)
         {
             var def = Stations.All[i];
-            var sp = m_InteriorCam.WorldToScreenPoint(InteriorMap.ToWorld(def.Pos + def.ConsoleOffset * 1.6f, 1f));
+            var labelPos = def.Type == StationType.Core ? InteriorMap.ReactorPos + new Vector2(0f, 2f) : def.Pos + def.ConsoleOffset + new Vector2(0f, 1.4f);
+            var sp = m_InteriorCam.WorldToScreenPoint(InteriorMap.ToWorld(labelPos, 1f));
             if (sp.z < 0 || sp.x < 0 || sp.x > Screen.width * 0.5f) continue;
             float w = 110 * s, h = 26 * s;
             var r = new Rect(sp.x - w * 0.5f, Screen.height - sp.y - h * 0.5f, w, h);
@@ -365,13 +368,77 @@ public class GameBootstrap : MonoBehaviour
         }
         foreach (var p in CrewPlayer.All)
         {
-            var sp = m_InteriorCam.WorldToScreenPoint(InteriorMap.ToWorld(p.DisplayPos, 2.2f));
+            var sp = m_InteriorCam.WorldToScreenPoint(InteriorMap.ToWorld(p.DisplayPos + new Vector2(0f, 1.85f), 1f));
             if (sp.x < 0 || sp.x > Screen.width * 0.5f) continue;
             float w = 40 * s, h = 20 * s;
             var r = new Rect(sp.x - w * 0.5f, Screen.height - sp.y - h - 14 * s, w, h);
             DrawRect(r, p.Color);
             m_Tag.normal.textColor = new Color(0.05f, 0.06f, 0.07f);
             GUI.Label(r, p.Label, m_Tag);
+        }
+    }
+
+    /// <summary>
+    /// 左半分の右上に出す、ロボット内部全体のミニマップ。
+    /// 部屋・操作盤・火災・乗組員と、いま左の画面に映っている範囲（白い枠）を表示する。
+    /// </summary>
+    void DrawMinimap()
+    {
+        var rs = RobotState.Instance;
+        float s = m_Scale;
+        var b = InteriorMap.Bounds;
+        float size = Mathf.Min(220f * s, Screen.width * 0.5f * 0.38f);
+        float k = size / Mathf.Max(b.width, b.height);
+        float w = b.width * k, h = b.height * k;
+        float pad = 8f * s;
+        var frame = new Rect(Screen.width * 0.5f - w - pad * 2f - 12f * s, 12f * s, w + pad * 2f, h + pad * 2f + 18f * s);
+        DrawRect(frame, new Color(0.04f, 0.06f, 0.07f, 0.85f));
+        GUI.Label(new Rect(frame.x + pad, frame.y + 2f * s, frame.width, 18f * s), "<color=#93a6ae>内部マップ</color>", m_Small);
+        float ox = frame.x + pad, oy = frame.y + pad + 18f * s;
+
+        // 地図上の点（メートル）→ 画面上の位置。z が上向きなので y は反転する
+        Vector2 ToMap(Vector2 p) => new Vector2(ox + (p.x - b.xMin) * k, oy + (b.yMax - p.y) * k);
+
+        foreach (var a in InteriorMap.Areas)
+        {
+            var min = ToMap(new Vector2(a.Rect.xMin, a.Rect.yMax) * InteriorMap.Scale);
+            var max = ToMap(new Vector2(a.Rect.xMax, a.Rect.yMin) * InteriorMap.Scale);
+            DrawRect(Rect.MinMaxRect(min.x, min.y, max.x, max.y), a.Floor * 0.75f);
+        }
+
+        for (int i = 0; i < Stations.Count; i++)
+        {
+            var def = Stations.All[i];
+            var c = ToMap(def.Pos);
+            bool fire = rs != null && rs.FireHp.Count == Stations.Count && rs.FireHp[i] > 0;
+            bool taken = rs != null && rs.Occupant.Count == Stations.Count && rs.Occupant[i] != 0;
+            float d = (fire ? 9f : 7f) * s;
+            var col = fire ? (Mathf.Sin(Time.time * 12f) > 0f ? new Color(1f, 0.3f, 0.1f) : new Color(0.5f, 0.08f, 0.03f))
+                           : taken ? def.Color : def.Color * 0.6f;
+            DrawRect(new Rect(c.x - d * 0.5f, c.y - d * 0.5f, d, d), col);
+        }
+
+        // いま左の画面に映っている範囲
+        var cam = m_InteriorCam;
+        float halfH = cam.orthographicSize, halfW = halfH * cam.aspect;
+        var cp = new Vector2(cam.transform.position.x - InteriorMap.Origin.x, cam.transform.position.z - InteriorMap.Origin.z);
+        var v0 = ToMap(cp + new Vector2(-halfW, halfH));
+        var v1 = ToMap(cp + new Vector2(halfW, -halfH));
+        var view = Rect.MinMaxRect(Mathf.Max(v0.x, ox), Mathf.Max(v0.y, oy), Mathf.Min(v1.x, ox + w), Mathf.Min(v1.y, oy + h));
+        var line = new Color(1f, 1f, 1f, 0.55f);
+        float t = Mathf.Max(1f, 1.5f * s);
+        DrawRect(new Rect(view.x, view.y, view.width, t), line);
+        DrawRect(new Rect(view.x, view.yMax - t, view.width, t), line);
+        DrawRect(new Rect(view.x, view.y, t, view.height), line);
+        DrawRect(new Rect(view.xMax - t, view.y, t, view.height), line);
+
+        foreach (var p in CrewPlayer.All)
+        {
+            var c = ToMap(p.DisplayPos);
+            bool me = p == CrewPlayer.Local;
+            float d = (me ? 10f + Mathf.Sin(Time.time * 6f) * 2f : 8f) * s;
+            if (me) DrawRect(new Rect(c.x - d * 0.5f - 2f, c.y - d * 0.5f - 2f, d + 4f, d + 4f), Color.white);
+            DrawRect(new Rect(c.x - d * 0.5f, c.y - d * 0.5f, d, d), p.Color);
         }
     }
 
