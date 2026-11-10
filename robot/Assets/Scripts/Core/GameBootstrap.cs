@@ -446,6 +446,24 @@ public class GameBootstrap : MonoBehaviour
             var b0 = ToMap(new Vector2(l.X, l.Y1)); var b1 = ToMap(new Vector2(l.X, l.Y0));
             DrawRect(new Rect(b0.x - 1f, b0.y, Mathf.Max(2f, 2f * s), b1.y - b0.y), new Color(0.95f, 0.71f, 0.19f, 0.9f));
         }
+        // ダクト（黄色い点。近くにいるときは行き先と線でつなぐ）
+        var meD = CrewPlayer.Local;
+        for (int i = 0; i < Ducts.All.Length; i++)
+        {
+            var c = ToMap(Ducts.All[i].Pos);
+            float d = 6f * s;
+            DrawRect(new Rect(c.x - d * 0.5f, c.y - d * 0.5f, d, d), Prims.Hex("#ffb000"));
+        }
+        if (meD != null && meD.NearDuct >= 0)
+        {
+            var a0 = ToMap(Ducts.All[meD.NearDuct].Pos);
+            var a1 = ToMap(Ducts.All[Ducts.All[meD.NearDuct].Link].Pos);
+            for (int dot = 0; dot <= 12; dot++)
+            {
+                var q = Vector2.Lerp(a0, a1, dot / 12f);
+                DrawRect(new Rect(q.x - 1.5f, q.y - 1.5f, 3f, 3f), Prims.Hex("#ffb000"));
+            }
+        }
         if (rs != null && Mathf.Sin(Time.time * 8f) > -0.3f)
         {
             for (int i = 0; i < Tasks.Count; i++)
@@ -569,6 +587,17 @@ public class GameBootstrap : MonoBehaviour
             where = def.Name;
             hint = fire ? $"<color=#ff8a6a>火災！ Space 連打で消火（あと {rs.FireHp[me.NearStation]} 回）</color>"
                  : taken ? "ほかの乗組員が操縦中" : "E で席に乗る";
+        }
+        else if (me.InDuct.Value)
+        {
+            where = "ダクトの中";
+            hint = "<color=#93a6ae>出口まで移動中…</color>";
+        }
+        else if (me.NearDuct >= 0)
+        {
+            var d = Ducts.All[me.NearDuct];
+            where = $"ダクト（{d.Name}）";
+            hint = $"E でダクトに入る → <color=#ffb000>{Ducts.All[d.Link].Name}</color> に出る";
         }
         else if (me.NearTask >= 0)
         {

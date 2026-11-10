@@ -242,6 +242,13 @@ public static class InteriorMap
             r.transform.localScale = Vector3.one * scale;
         }
 
+        // ダクトの入り口（足場の上、壁ぎわ）
+        foreach (var d in Ducts.All)
+        {
+            var duct = Art.Place(root, "duct", new Vector3(d.Pos.x, 0.02f, d.Pos.y + 0.75f), OrderProp - 3, null, "ダクト " + d.Name);
+            duct.transform.localScale = Vector3.one * 0.85f;
+        }
+
         // 整備装置（足場の上、立ち位置の後ろの壁ぎわ）
         for (int i = 0; i < Tasks.Count; i++)
         {

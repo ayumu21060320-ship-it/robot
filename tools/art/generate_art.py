@@ -637,6 +637,22 @@ def armor_boot():
     return finish(img)
 
 
+def duct():
+    """ダクトの入り口（壁ぎわのハッチ。1.8m x 1.4m）。"""
+    W, H = 116, 90
+    img = canvas(W, H)
+    d = ImageDraw.Draw(img)
+    rr(d, (4, 4, W - 4, H - 4), 10, fill=(242, 182, 48, 255), outline=INK)
+    rr(d, (14, 14, W - 14, H - 14), 6, fill=(40, 46, 54, 255), outline=INK, width=4)
+    for y in range(22, H - 18, 9):
+        rr(d, (20, y, W - 20, y + 4), 2, fill=(110, 122, 134, 255))
+    for x, y in ((9, 9), (W - 13, 9), (9, H - 13), (W - 13, H - 13)):
+        ell(d, (x, y, x + 5, y + 5), fill=INK)
+    # 矢印（中に入れることを示す）
+    poly(d, [(W / 2 - 10, 30), (W / 2 + 10, 30), (W / 2, 46)], fill=(255, 255, 255, 200))
+    return finish(img)
+
+
 # ------------------------------------------------------------------ 書き出し
 
 def build():
@@ -681,6 +697,7 @@ def build():
     out["armor_joint"] = armor_joint()
     out["armor_pauldron"] = armor_pauldron()
     out["armor_boot"] = armor_boot()
+    out["duct"] = duct()
     for name, img in out.items():
         img.save(os.path.join(OUT, name + ".png"))
     return out

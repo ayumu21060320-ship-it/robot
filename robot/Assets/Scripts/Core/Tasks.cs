@@ -37,7 +37,7 @@ public static class Tasks
         new TaskDef { Name = "左脚の油圧",     Room = "左もも", Kind = TaskKind.Gauge, Pos = P(16.7f, 20.6f),   PanelOffset = new Vector2(0f, 1.05f),  Effect = "左脚が全力で動かない" },
         new TaskDef { Name = "右脚の油圧",     Room = "右もも", Kind = TaskKind.Gauge, Pos = P(23.3f, 20.6f),   PanelOffset = new Vector2(0f, 1.05f),   Effect = "右脚が全力で動かない" },
         new TaskDef { Name = "ヒューズ",       Room = "腰",     Kind = TaskKind.Fuse,  Pos = P(26f, 27.4f),   PanelOffset = new Vector2(0f, 1.05f),   Effect = "頭部砲が撃てない" },
-        new TaskDef { Name = "照準の調整",     Room = "頭",     Kind = TaskKind.Scope, Pos = P(17.6f, 49.5f),   PanelOffset = new Vector2(0f, 1.05f),  Effect = "砲撃が狙いからずれる" },
+        new TaskDef { Name = "照準の調整",     Room = "頭",     Kind = TaskKind.Scope, Pos = P(17.0f, 49.5f),   PanelOffset = new Vector2(0f, 1.05f),  Effect = "砲撃が狙いからずれる" },
         new TaskDef { Name = "排熱ダクト",     Room = "腰",     Kind = TaskKind.Vent,  Pos = P(14f, 27.4f),     PanelOffset = new Vector2(0f, 1.05f),  Effect = "装甲がじわじわ減る" },
         new TaskDef { Name = "姿勢制御ジャイロ", Room = "左足", Kind = TaskKind.Gyro,  Pos = P(10.4f, -10.8f),   PanelOffset = new Vector2(0f, 1.05f),  Effect = "歩くとふらついて曲がる" },
     };
