@@ -24,8 +24,13 @@ public class RobotVisual : MonoBehaviour
     Vector2 m_Pos;
     float m_Yaw;
 
-    readonly Transform[] m_Drones = new Transform[RobotState.MaxDrones];
-    readonly Transform[] m_DroneRing = new Transform[RobotState.MaxDrones];
+    // 巨大な敵
+    Transform m_Boss, m_BossTorso, m_BossHead, m_BossTail;
+    readonly Transform[] m_BossHip = new Transform[2], m_BossKnee = new Transform[2], m_BossArm = new Transform[2], m_BossForearm = new Transform[2];
+    Renderer m_BossCore, m_BossMouth;
+    Vector2 m_BossPos;
+    float m_BossYaw, m_BossPhase, m_BossT = -1f, m_BossLastHp, m_BossFlash;
+    int m_BossLastId, m_BossKind;
     readonly List<Fx> m_Fx = new List<Fx>();
     Transform m_FxRoot;
 
@@ -47,7 +52,13 @@ public class RobotVisual : MonoBehaviour
         m_Yaw = s.Yaw.Value;
         m_LastPunch[0] = s.PunchL.Value;
         m_LastPunch[1] = s.PunchR.Value;
+        m_BossPos = s.BossPos.Value;
+        m_BossYaw = s.BossYaw.Value;
+        m_BossLastId = s.BossActionId.Value;
+        m_BossLastHp = s.BossHp.Value;
         Build();
+        Root.localScale = Vector3.one * RobotState.TitanScale;
+        BuildBoss();
     }
 
     void OnDestroy()
@@ -55,7 +66,7 @@ public class RobotVisual : MonoBehaviour
         if (Instance == this) Instance = null;
         if (Root) Destroy(Root.gameObject);
         if (m_FxRoot) Destroy(m_FxRoot.gameObject);
-        foreach (var d in m_Drones) if (d) Destroy(d.gameObject);
+        if (m_Boss) Destroy(m_Boss.gameObject);
     }
 
     // ---------------------------------------------------------------- 組み立て
@@ -188,20 +199,6 @@ public class RobotVisual : MonoBehaviour
             Plate(arm, new Vector3(-s * 0.95f, -7.15f, 0.35f), new Vector3(0.32f, 0.9f, 0.38f), white, new Vector3(0, 0, s * 25f), false, "親指");
             m_Arm[k] = arm;
         }
-
-        // 敵ドローン（決まった数を先に作っておき、使う分だけ表示する）
-        var droneBody = Prims.Hex("#3a2140");
-        var ring = Prims.Hex("#ff3d7f");
-        for (int i = 0; i < RobotState.MaxDrones; i++)
-        {
-            var d = new GameObject("ドローン " + i).transform;
-            Prims.Shape(PrimitiveType.Sphere, d, Vector3.zero, new Vector3(2.6f, 1.5f, 2.6f), droneBody);
-            var r = Prims.Shape(PrimitiveType.Cylinder, d, Vector3.zero, new Vector3(4f, 0.08f, 4f), ring, true);
-            Prims.Shape(PrimitiveType.Sphere, d, new Vector3(0, 0.1f, 1.15f), Vector3.one * 0.7f, Prims.Hex("#ff2a2a"), true);
-            d.gameObject.SetActive(false);
-            m_Drones[i] = d;
-            m_DroneRing[i] = r.transform;
-        }
     }
 
     // ---------------------------------------------------------------- 毎フレーム
@@ -220,15 +217,15 @@ public class RobotVisual : MonoBehaviour
         Root.SetPositionAndRotation(new Vector3(m_Pos.x, 0, m_Pos.y), Quaternion.Euler(0, m_Yaw * Mathf.Rad2Deg, 0));
 
         // 脚
-        bool powered = s.Power.Value > 0f;
-        float[] levers = { s.LegL.Value, s.LegR.Value };
+        // 実際の歩く速さ（ゆっくり加速する）に合わせて、大きな歩幅でゆっくり脚を動かす
         bool moving = false;
         for (int i = 0; i < 2; i++)
         {
-            float lev = levers[i];
-            if (powered) m_Phase[i] += lev * dt * 3.4f;
-            if (Mathf.Abs(lev) > 0.05f && powered) moving = true;
-            float amp = Mathf.Min(1f, Mathf.Abs(lev) * 2.2f) * 28f;
+            float legSpeed = s.MoveSpeed.Value + (i == 0 ? 1f : -1f) * s.TurnRate.Value * 4f;
+            float lev = legSpeed / 3.4f;
+            m_Phase[i] += legSpeed * dt * 0.42f;
+            if (Mathf.Abs(lev) > 0.05f) moving = true;
+            float amp = Mathf.Min(1f, Mathf.Abs(lev) * 1.6f) * 26f;
             float hip = -Mathf.Sin(m_Phase[i]) * amp;
             float knee = Mathf.Max(0f, Mathf.Cos(m_Phase[i])) * amp * 1.3f;
             m_Hip[i].localRotation = Quaternion.Euler(hip, 0, 0);
@@ -238,10 +235,10 @@ public class RobotVisual : MonoBehaviour
             if (sign != m_StepSign[i] && Mathf.Abs(lev) > 0.05f)
             {
                 m_StepSign[i] = sign;
-                if (sign > 0) Shake = Mathf.Max(Shake, 0.25f);
+                if (sign > 0) Shake = Mathf.Max(Shake, 0.55f); // 一歩ごとにズシンと揺れる
             }
         }
-        float bob = moving ? Mathf.Abs(Mathf.Sin((m_Phase[0] + m_Phase[1]) * 0.5f)) * 0.3f : 0f;
+        float bob = moving ? Mathf.Abs(Mathf.Sin((m_Phase[0] + m_Phase[1]) * 0.5f)) * 0.25f : 0f;
         m_Body.localPosition = new Vector3(0, Mathf.Lerp(m_Body.localPosition.y, bob, k), 0);
 
         // 腕（パンチの回数が増えたら振る）
@@ -253,58 +250,190 @@ public class RobotVisual : MonoBehaviour
             float e = 0f;
             if (m_PunchT[i] >= 0f)
             {
-                m_PunchT[i] += dt / 0.5f;
+                m_PunchT[i] += dt / RobotState.PunchTime;   // 重い腕なのでゆっくり振る
                 float t = m_PunchT[i];
-                e = t < 0.3f ? 1f - Mathf.Pow(1f - t / 0.3f, 3f) : 1f - (t - 0.3f) / 0.7f;
+                // 振りかぶり（少し後ろへ）→ 突き出し → ゆっくり戻す
+                e = t < 0.2f ? -0.25f * (t / 0.2f) : t < 0.43f ? Mathf.Lerp(-0.25f, 1f, 1f - Mathf.Pow(1f - (t - 0.2f) / 0.23f, 3f)) : 1f - (t - 0.43f) / 0.57f;
                 if (t >= 1f) m_PunchT[i] = -1f;
             }
             float idle = -Mathf.Sin(m_Phase[1 - i]) * 7f - 4f;
-            m_Arm[i].localRotation = Quaternion.Euler(Mathf.Lerp(idle, -86f, e), aims[i] * Mathf.Rad2Deg, 0);
+            m_Arm[i].localRotation = Quaternion.Euler(Mathf.LerpUnclamped(idle, -86f, e), aims[i] * Mathf.Rad2Deg, 0);
         }
 
         // 頭と照準線（頭部砲に誰か座っているときだけ表示）
         m_Head.localRotation = Quaternion.Euler(0, s.AimHead.Value * Mathf.Rad2Deg, 0);
         m_Sight.SetActive(s.Occupant.Count > Stations.Head && s.Occupant[Stations.Head] != 0);
 
-        // 敵の巣
-        for (int i = 0; i < ExteriorWorld.HiveObjects.Length; i++)
-        {
-            var go = ExteriorWorld.HiveObjects[i];
-            if (!go) continue;
-            bool alive = s.HiveAlive(i);
-            if (go.activeSelf != alive) go.SetActive(alive);
-            if (alive) ExteriorWorld.HiveCores[i].localScale = Vector3.one * (6.5f + Mathf.Sin(Time.time * 3f) * 0.4f);
-        }
-
-        // ドローン
-        for (int i = 0; i < RobotState.MaxDrones && i < s.Drones.Count; i++)
-        {
-            var d = s.Drones[i];
-            var t = m_Drones[i];
-            bool alive = d.w > 0f;
-            if (t.gameObject.activeSelf != alive)
-            {
-                t.gameObject.SetActive(alive);
-                if (alive) t.position = new Vector3(d.x, d.y, d.z);
-            }
-            if (!alive) continue;
-            var target = new Vector3(d.x, d.y, d.z);
-            var dir = new Vector3(m_Pos.x, 0, m_Pos.y) - t.position;
-            t.position = Vector3.Lerp(t.position, target, 1f - Mathf.Exp(-8f * dt));
-            dir.y = 0;
-            if (dir.sqrMagnitude > 0.01f) t.rotation = Quaternion.LookRotation(dir);
-            m_DroneRing[i].localRotation = Quaternion.Euler(0, Time.time * 240f, 0);
-        }
+        UpdateBoss(dt);
 
         UpdateFx(dt);
         Shake = Mathf.Max(0f, Shake - dt * 2.2f);
+    }
+
+    // ---------------------------------------------------------------- 巨大な敵
+
+    /// <summary>
+    /// 巨大な敵（全高 約42m）。前かがみの胴体、大きな爪の腕、角のある頭、背中のトゲ、しっぽ。
+    /// 胸の光るコアが弱点に見えるようにしてある（当たり判定は体全体）。
+    /// </summary>
+    void BuildBoss()
+    {
+        var hull = Prims.Hex("#3a2140");
+        var plate = Prims.Hex("#5a2d5e");
+        var bone = Prims.Hex("#c9c4cf");
+        var glowC = Prims.Hex("#ff3d7f");
+        var eye = Prims.Hex("#ff2a2a");
+
+        m_Boss = new GameObject("巨大な敵").transform;
+        Prims.Box(m_Boss, new Vector3(0, 13.5f, -1f), new Vector3(12f, 6f, 9f), hull, false, "腰");
+
+        for (int k = 0; k < 2; k++)
+        {
+            float s = k == 0 ? -1f : 1f;
+            var hip = Prims.Pivot(m_Boss, new Vector3(s * 5.2f, 13.5f, -1f), "脚");
+            Prims.Box(hip, new Vector3(0, -3.6f, 0.4f), new Vector3(5.2f, 7.6f, 6.2f), plate, false, "もも");
+            var knee = Prims.Pivot(hip, new Vector3(0, -7.2f, 0.6f), "ひざ");
+            Prims.Box(knee, new Vector3(0, -2.9f, -0.6f), new Vector3(4.4f, 6.2f, 5f), hull, false, "すね");
+            Prims.Box(knee, new Vector3(0, -6.2f, 1.6f), new Vector3(7f, 1.6f, 10f), plate, false, "足");
+            for (int c = -1; c <= 1; c++)
+                Plate(knee, new Vector3(c * 2.4f, -6.4f, 7f), new Vector3(1.1f, 1.1f, 3f), bone, new Vector3(20f, 0, 0), false, "足の爪");
+            m_BossHip[k] = hip; m_BossKnee[k] = knee;
+        }
+
+        m_BossTorso = Prims.Pivot(m_Boss, new Vector3(0, 16f, -1f), "胴");
+        m_BossTorso.localRotation = Quaternion.Euler(18f, 0, 0);
+        Prims.Box(m_BossTorso, new Vector3(0, 7f, 0.5f), new Vector3(16f, 14f, 11f), hull, false, "胴体");
+        Prims.Box(m_BossTorso, new Vector3(0, 9.5f, 6.1f), new Vector3(12f, 7f, 1.2f), plate, false, "胸の装甲");
+        m_BossCore = Prims.Shape(PrimitiveType.Sphere, m_BossTorso, new Vector3(0, 8.5f, 6.6f), Vector3.one * 4.2f, glowC, true, "コア").GetComponent<Renderer>();
+        for (int i = 0; i < 5; i++)
+            Plate(m_BossTorso, new Vector3(0, 13.5f - i * 2.6f, -5.6f), new Vector3(1.6f, 4.2f - i * 0.4f, 1.6f), bone, new Vector3(-40f, 0, 0), false, "背中のトゲ");
+        for (int k = -1; k <= 1; k += 2)
+            Plate(m_BossTorso, new Vector3(k * 7.6f, 13.6f, 0.5f), new Vector3(5f, 3f, 7f), plate, new Vector3(0, 0, -k * 18f), false, "肩の甲羅");
+
+        // 腕（大きな爪）。右腕で振り下ろす
+        for (int k = 0; k < 2; k++)
+        {
+            float s = k == 0 ? -1f : 1f;
+            var arm = Prims.Pivot(m_BossTorso, new Vector3(s * 9.6f, 12.5f, 1.5f), "腕");
+            arm.localRotation = Quaternion.Euler(-18f, 0, 0);
+            Prims.Box(arm, new Vector3(0, -4.5f, 0), new Vector3(4.4f, 9f, 4.4f), plate, false, "上腕");
+            var fore = Prims.Pivot(arm, new Vector3(0, -9f, 0), "前腕");
+            Prims.Box(fore, new Vector3(0, -4.5f, 0.5f), new Vector3(5.6f, 9f, 5.6f), hull, false, "前腕");
+            for (int c = -1; c <= 1; c++)
+                Plate(fore, new Vector3(c * 1.8f, -11f, 1.6f), new Vector3(1.2f, 5.5f, 1.2f), bone, new Vector3(-25f, 0, c * 10f), false, "爪");
+            m_BossArm[k] = arm; m_BossForearm[k] = fore;
+        }
+
+        // 頭
+        m_BossHead = Prims.Pivot(m_BossTorso, new Vector3(0, 14f, 5f), "頭");
+        Prims.Box(m_BossHead, new Vector3(0, 2f, 2.5f), new Vector3(8f, 6f, 8f), plate, false, "頭");
+        Prims.Box(m_BossHead, new Vector3(0, -1.2f, 4f), new Vector3(6.6f, 2.2f, 6f), hull, false, "あご");
+        m_BossMouth = Prims.Box(m_BossHead, new Vector3(0, 0.3f, 7.05f), new Vector3(5f, 0.9f, 0.3f), glowC, true, "口").GetComponent<Renderer>();
+        for (int k = -1; k <= 1; k += 2)
+        {
+            Prims.Box(m_BossHead, new Vector3(k * 2f, 3.2f, 6.55f), new Vector3(1.8f, 0.8f, 0.2f), eye, true, "目");
+            Plate(m_BossHead, new Vector3(k * 3.4f, 6.8f, 0.5f), new Vector3(1.3f, 7.5f, 1.3f), bone, new Vector3(-25f, 0, -k * 28f), false, "角");
+        }
+
+        // しっぽ
+        m_BossTail = Prims.Pivot(m_Boss, new Vector3(0, 13f, -5f), "しっぽ");
+        var seg = m_BossTail;
+        for (int i = 0; i < 4; i++)
+        {
+            float w = 5f - i * 1.1f;
+            Prims.Box(seg, new Vector3(0, 0, -2.6f), new Vector3(w, w * 0.8f, 5.6f), i % 2 == 0 ? hull : plate, false, "しっぽ");
+            var next = Prims.Pivot(seg, new Vector3(0, -0.6f, -5.2f), "しっぽ");
+            next.localRotation = Quaternion.Euler(12f, 0, 0);
+            seg = next;
+        }
+    }
+
+    void UpdateBoss(float dt)
+    {
+        var s = m_State;
+        bool alive = s.BossAlive;
+        if (m_Boss.gameObject.activeSelf != alive) m_Boss.gameObject.SetActive(alive);
+        if (!alive) return;
+
+        float k = 1f - Mathf.Exp(-6f * dt);
+        m_BossPos = Vector2.Lerp(m_BossPos, s.BossPos.Value, k);
+        m_BossYaw = Mathf.LerpAngle(m_BossYaw * Mathf.Rad2Deg, s.BossYaw.Value * Mathf.Rad2Deg, k) * Mathf.Deg2Rad;
+        m_Boss.SetPositionAndRotation(new Vector3(m_BossPos.x, 0, m_BossPos.y), Quaternion.Euler(0, m_BossYaw * Mathf.Rad2Deg, 0));
+
+        // 歩き：大きな歩幅でゆっくり。一歩ごとに地面が揺れる
+        float sp = s.BossSpeed.Value;
+        float prev = Mathf.Sin(m_BossPhase);
+        m_BossPhase += sp * dt * 0.32f;
+        float amp = Mathf.Min(1f, sp / 2.3f) * 22f;
+        for (int i = 0; i < 2; i++)
+        {
+            float ph = m_BossPhase + i * Mathf.PI;
+            m_BossHip[i].localRotation = Quaternion.Euler(-Mathf.Sin(ph) * amp, 0, 0);
+            m_BossKnee[i].localRotation = Quaternion.Euler(Mathf.Max(0f, Mathf.Cos(ph)) * amp * 1.2f, 0, 0);
+        }
+        if (sp > 0.1f && Mathf.Sign(prev) != Mathf.Sign(Mathf.Sin(m_BossPhase)) && Vector2.Distance(m_BossPos, m_Pos) < 160f)
+            Shake = Mathf.Max(Shake, 0.45f);
+        m_BossTail.localRotation = Quaternion.Euler(0, Mathf.Sin(Time.time * 0.9f) * 12f, 0);
+
+        // 攻撃のアニメーション（ホストが攻撃を始めた合図で始める）
+        if (s.BossActionId.Value != m_BossLastId)
+        {
+            m_BossLastId = s.BossActionId.Value;
+            m_BossKind = s.BossAction.Value;
+            m_BossT = 0f;
+        }
+        float armR = -18f, foreR = 0f, torsoX = 18f, headX = 0f, lift = 0f;
+        float mouth = 0.3f;
+        if (m_BossT >= 0f)
+        {
+            m_BossT += dt;
+            float t = m_BossT;
+            switch (m_BossKind)
+            {
+                case RobotState.BossSwipe:
+                {
+                    float w = RobotState.BossSwipeWindup;
+                    if (t < w) { float e = t / w; armR = Mathf.Lerp(-18f, -150f, e * e); foreR = -30f * e; torsoX = 18f - 10f * e; }
+                    else if (t < w + 0.35f) { float e = (t - w) / 0.35f; armR = Mathf.Lerp(-150f, 20f, e); foreR = Mathf.Lerp(-30f, 10f, e); torsoX = Mathf.Lerp(8f, 30f, e); }
+                    else if (t < w + 1.2f) { float e = (t - w - 0.35f) / 0.85f; armR = Mathf.Lerp(20f, -18f, e); foreR = Mathf.Lerp(10f, 0f, e); torsoX = Mathf.Lerp(30f, 18f, e); }
+                    else m_BossT = -1f;
+                    break;
+                }
+                case RobotState.BossBarrage:
+                    headX = -12f * Mathf.Min(1f, t / 0.6f);
+                    mouth = 0.6f + Mathf.Abs(Mathf.Sin(t * 9f)) * 0.8f;
+                    if (s.BossAction.Value != RobotState.BossBarrage && t > 1f) m_BossT = -1f;
+                    break;
+                case RobotState.BossStomp:
+                    if (t < 1.4f) lift = Mathf.Sin(t / 1.4f * Mathf.PI * 0.5f) * 30f;
+                    else if (t < 1.6f) { lift = Mathf.Lerp(30f, 0f, (t - 1.4f) / 0.2f); }
+                    else if (t > 2.6f) m_BossT = -1f;
+                    if (t >= 1.55f && t - dt < 1.55f && Vector2.Distance(m_BossPos, m_Pos) < 160f) Shake = Mathf.Max(Shake, 1.4f);
+                    break;
+            }
+        }
+        m_BossArm[1].localRotation = Quaternion.Euler(armR, 0, 0);
+        m_BossForearm[1].localRotation = Quaternion.Euler(foreR, 0, 0);
+        m_BossArm[0].localRotation = Quaternion.Euler(-18f + Mathf.Sin(m_BossPhase) * 10f, 0, 0);
+        m_BossTorso.localRotation = Quaternion.Euler(torsoX + Mathf.Sin(Time.time * 1.1f) * 1.5f, 0, 0);
+        m_BossHead.localRotation = Quaternion.Euler(headX, 0, 0);
+        if (lift > 0f) m_BossHip[0].localRotation = Quaternion.Euler(-lift, 0, 0);
+
+        // コアの脈動と、ダメージを受けたときの白い点滅
+        if (s.BossHp.Value < m_BossLastHp) m_BossFlash = 1f;
+        m_BossLastHp = s.BossHp.Value;
+        m_BossFlash = Mathf.Max(0f, m_BossFlash - dt * 4f);
+        float pulse = 0.75f + Mathf.Sin(Time.time * 2.4f) * 0.25f;
+        Prims.SetColor(m_BossCore, Color.Lerp(Prims.Hex("#ff3d7f") * pulse, Color.white, m_BossFlash));
+        m_BossCore.transform.localScale = Vector3.one * (4.2f + m_BossFlash * 0.8f);
+        Prims.SetColor(m_BossMouth, Prims.Hex("#ff3d7f") * Mathf.Clamp01(mouth));
     }
 
     // ---------------------------------------------------------------- 演出
 
     public void SpawnBolt(Vector3 from, float yaw)
     {
-        var b = Prims.Box(m_FxRoot, from, new Vector3(0.35f, 0.35f, 3.2f), Prims.Hex("#8ff6ff"), true, "Bolt");
+        var b = Prims.Box(m_FxRoot, from, new Vector3(0.6f, 0.6f, 5f), Prims.Hex("#8ff6ff"), true, "Bolt");
         b.transform.rotation = Quaternion.Euler(0, yaw * Mathf.Rad2Deg, 0);
         var dir = new Vector3(Mathf.Sin(yaw), -0.12f, Mathf.Cos(yaw));
         m_Fx.Add(new Fx { T = b.transform, V = dir * 75f, Life = 1.4f });
@@ -312,7 +441,7 @@ public class RobotVisual : MonoBehaviour
 
     public void SpawnShot(Vector3 from, Vector3 velocity)
     {
-        var b = Prims.Shape(PrimitiveType.Sphere, m_FxRoot, from, Vector3.one * 0.9f, Prims.Hex("#ff3d5a"), true, "Shot");
+        var b = Prims.Shape(PrimitiveType.Sphere, m_FxRoot, from, Vector3.one * 2.6f, Prims.Hex("#ff3d5a"), true, "Shot");
         m_Fx.Add(new Fx { T = b.transform, V = velocity, Life = 4f, IsShot = true });
     }
 
@@ -350,7 +479,7 @@ public class RobotVisual : MonoBehaviour
             var p = f.T.position + f.V * dt;
             if (p.y < 0.2f) { p.y = 0.2f; f.V *= 0.5f; f.V.y = -f.V.y * 0.3f; }
             f.T.position = p;
-            if (f.IsShot && Vector2.Distance(new Vector2(p.x, p.z), m_Pos) < 5.4f && p.y < 15f) f.Life = 0f;
+            if (f.IsShot && Vector2.Distance(new Vector2(p.x, p.z), m_Pos) < ExteriorWorld.RobotRadius && p.y < 19f * RobotState.TitanScale) f.Life = 0f;
             if (f.Life <= 0f)
             {
                 if (f.IsShot) Boom(p, 0.5f, Prims.Hex("#ff3d5a"));

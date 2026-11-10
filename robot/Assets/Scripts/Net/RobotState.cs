@@ -12,8 +12,29 @@ public class RobotState : NetworkBehaviour
     public static RobotState Instance { get; private set; }
 
     public const int Playing = 0, Won = 1, Lost = 2;
-    public const int MaxDrones = 12;
     public const float MaxHull = 100f, MaxPower = 100f;
+
+    /// <summary>タイタン（味方の巨大ロボット）の大きさ。見た目（RobotVisual）と当たり判定の両方に掛ける</summary>
+    public const float TitanScale = 1.8f;
+
+    // ---- 巨大ロボットらしい重い動き（ゆっくり加速・ゆっくり止まる）
+    const float WalkSpeedMax = 3.4f;     // 両脚レバー全開での歩く速さ（m/秒）
+    const float TurnSpeedMax = 0.22f;    // 旋回の速さ（ラジアン/秒）
+    const float WalkAccel = 0.9f;        // 速さが変わる早さ（m/秒²）
+    const float LeverRate = 0.45f;       // レバーを倒す速さ（1秒で 45%）
+    const float ArmAimRate = 0.55f, HeadAimRate = 0.7f;
+    public const float PunchTime = 1.4f; // パンチの腕振り全体の時間（見た目と合わせる）
+    const float PunchHitDelay = 0.6f;    // 振りかぶってから当たるまで
+    const float PunchCooldown = 2.2f, PunchCooldownBroken = 4.5f;
+    const float PunchDamage = 12f;
+
+    // ---- 巨大な敵（1体だけ）
+    public const float BossMaxHp = 320f;
+    public const float BossRadius = 11f;           // 当たり判定の半径（m）
+    public static readonly Vector2 BossStart = new Vector2(0f, 150f);
+    const float BossWalkSpeed = 2.3f, BossTurnSpeed = 0.5f, BossReach = 38f;
+    public const float BossSwipeWindup = 1.8f;    // 腕を振りかぶっている時間（見た目と合わせる）
+    public const int BossIdle = 0, BossSwipe = 1, BossBarrage = 2, BossStomp = 3;
 
     // ---- 全員に配る状態
     public NetworkVariable<Vector2> Pos = new NetworkVariable<Vector2>();
@@ -29,13 +50,20 @@ public class RobotState : NetworkBehaviour
     public NetworkVariable<int> PunchR = new NetworkVariable<int>();
     public NetworkVariable<int> GameState = new NetworkVariable<int>(Playing);
     public NetworkVariable<int> Score = new NetworkVariable<int>();
-    public NetworkVariable<int> Kills = new NetworkVariable<int>();
     public NetworkVariable<float> Elapsed = new NetworkVariable<float>();
+    public NetworkVariable<float> MoveSpeed = new NetworkVariable<float>();     // 今の歩く速さ（脚のアニメーション用）
+    public NetworkVariable<float> TurnRate = new NetworkVariable<float>();
+
+    // ---- 巨大な敵
+    public NetworkVariable<Vector2> BossPos = new NetworkVariable<Vector2>();
+    public NetworkVariable<float> BossYaw = new NetworkVariable<float>();
+    public NetworkVariable<float> BossHp = new NetworkVariable<float>(BossMaxHp);
+    public NetworkVariable<float> BossSpeed = new NetworkVariable<float>();
+    public NetworkVariable<int> BossAction = new NetworkVariable<int>();       // 今の攻撃の種類
+    public NetworkVariable<int> BossActionId = new NetworkVariable<int>();     // 攻撃を始めるたびに +1（見た目の合図）
 
     public NetworkList<int> Occupant;   // 席ごとの操縦士（clientId + 1、空席は 0）
     public NetworkList<int> FireHp;     // 席ごとの火災（0 = 燃えていない、残り消火回数）
-    public NetworkList<int> HiveHp;
-    public NetworkList<Vector4> Drones; // x, y, z, hp（hp <= 0 は空き枠）
     public NetworkList<int> TaskBroken; // 整備タスクごとに 1 = 故障中
 
     RobotVisual m_Visual;
@@ -44,14 +72,15 @@ public class RobotState : NetworkBehaviour
     readonly float[] m_Cooldown = new float[Stations.Count];
     readonly float[] m_PunchHitAt = { -1f, -1f };
     readonly Dictionary<ulong, int> m_LastAct = new Dictionary<ulong, int>();
-    readonly float[] m_HiveSpawnT = new float[3];
-    readonly DroneSim[] m_Drones = new DroneSim[MaxDrones];
     readonly List<Bolt> m_Bolts = new List<Bolt>();
     readonly List<Shot> m_Shots = new List<Shot>();
-    float m_DroneSyncT;
     float m_TaskBreakT;
-
-    class DroneSim { public Vector3 P; public int Hp; public float FireT; public float Orbit; public int Hive; public float Seed; }
+    float m_Speed, m_Turn;
+    // 敵の行動
+    float m_BossCd, m_BossActT;
+    int m_BossShotsLeft;
+    float m_BossShotT;
+    bool m_BossHitDone;
     struct Bolt { public Vector2 P; public Vector2 D; public float Life; }
     struct Shot { public Vector3 P; public Vector3 V; public float Life; }
 
@@ -59,10 +88,7 @@ public class RobotState : NetworkBehaviour
     {
         Occupant = new NetworkList<int>();
         FireHp = new NetworkList<int>();
-        HiveHp = new NetworkList<int>();
-        Drones = new NetworkList<Vector4>();
         TaskBroken = new NetworkList<int>();
-        for (int i = 0; i < MaxDrones; i++) m_Drones[i] = new DroneSim();
     }
 
     public override void OnNetworkSpawn()
@@ -85,12 +111,7 @@ public class RobotState : NetworkBehaviour
         get { int n = 0; for (int i = 0; i < TaskBroken.Count; i++) if (TaskBroken[i] != 0) n++; return n; }
     }
 
-    public bool HiveAlive(int i) => i < HiveHp.Count && HiveHp[i] > 0;
-
-    public int HivesLeft
-    {
-        get { int n = 0; for (int i = 0; i < HiveHp.Count; i++) if (HiveHp[i] > 0) n++; return n; }
-    }
+    public bool BossAlive => BossHp.Value > 0f;
 
     // ================================================================ 操縦士からの依頼（RPC）
 
@@ -167,19 +188,24 @@ public class RobotState : NetworkBehaviour
         AimL.Value = AimR.Value = AimHead.Value = 0f;
         GameState.Value = Playing;
         Score.Value = 0;
-        Kills.Value = 0;
         Elapsed.Value = 0f;
+        m_Speed = m_Turn = 0f;
+        MoveSpeed.Value = TurnRate.Value = 0f;
+
+        BossPos.Value = BossStart;
+        BossYaw.Value = Mathf.PI;          // ロボットのほう（-z）を向いて始まる
+        BossHp.Value = BossMaxHp;
+        BossSpeed.Value = 0f;
+        BossAction.Value = BossIdle;
+        m_BossCd = 6f;
+        m_BossActT = 0f;
 
         Occupant.Clear();
         FireHp.Clear();
         for (int i = 0; i < Stations.Count; i++) { Occupant.Add(0); FireHp.Add(0); m_Cooldown[i] = 0f; }
-        HiveHp.Clear();
-        for (int i = 0; i < ExteriorWorld.HivePos.Length; i++) { HiveHp.Add(ExteriorWorld.HiveMaxHp); m_HiveSpawnT[i] = 2f; }
         TaskBroken.Clear();
         for (int i = 0; i < Tasks.Count; i++) TaskBroken.Add(0);
         m_TaskBreakT = 15f;
-        Drones.Clear();
-        for (int i = 0; i < MaxDrones; i++) { m_Drones[i].Hp = 0; Drones.Add(Vector4.zero); }
         m_Bolts.Clear();
         m_Shots.Clear();
         m_PunchHitAt[0] = m_PunchHitAt[1] = -1f;
@@ -241,7 +267,7 @@ public class RobotState : NetworkBehaviour
                     float lever = i == Stations.LeftLeg ? legL : legR;
                     // 油圧が壊れていると、レバーを全部は倒せない
                     float max = TaskOk(i == Stations.LeftLeg ? Tasks.GaugeL : Tasks.GaugeR) ? 1f : 0.4f;
-                    lever = Mathf.Clamp(lever + stick.y * 0.9f * dt, -0.5f, max);
+                    lever = Mathf.Clamp(lever + stick.y * LeverRate * dt, -0.5f, max);
                     if (Mathf.Abs(stick.y) < 0.1f && Mathf.Abs(lever) < 0.05f) lever = 0f;
                     if (pressed) lever = 0f;
                     if (i == Stations.LeftLeg) legL = lever; else legR = lever;
@@ -250,25 +276,25 @@ public class RobotState : NetworkBehaviour
                 case StationType.Arm:
                 {
                     int k = i == Stations.LeftArm ? 0 : 1;
-                    float aim = Mathf.Clamp((k == 0 ? aimL : aimR) + stick.x * 1.5f * dt, -0.8f, 0.8f);
+                    float aim = Mathf.Clamp((k == 0 ? aimL : aimR) + stick.x * ArmAimRate * dt, -0.8f, 0.8f);
                     if (k == 0) aimL = aim; else aimR = aim;
-                    if (pressed && m_Cooldown[i] <= 0f && power >= 3f)
+                    if (pressed && m_Cooldown[i] <= 0f && power >= 4f)
                     {
                         // 配線が壊れていると、次のパンチまでが長い
-                        m_Cooldown[i] = TaskOk(k == 0 ? Tasks.WiresL : Tasks.WiresR) ? 0.7f : 2.2f;
-                        power -= 3f;
-                        m_PunchHitAt[k] = 0.15f;
+                        m_Cooldown[i] = TaskOk(k == 0 ? Tasks.WiresL : Tasks.WiresR) ? PunchCooldown : PunchCooldownBroken;
+                        power -= 4f;
+                        m_PunchHitAt[k] = PunchHitDelay;
                         if (k == 0) PunchL.Value++; else PunchR.Value++;
                     }
                     break;
                 }
                 case StationType.Head:
                 {
-                    aimH = Mathf.Clamp(aimH + stick.x * 1.6f * dt, -1.7f, 1.7f);
+                    aimH = Mathf.Clamp(aimH + stick.x * HeadAimRate * dt, -1.7f, 1.7f);
                     // ヒューズが切れていると撃てない
                     if (held && m_Cooldown[i] <= 0f && power >= 1.2f && TaskOk(Tasks.Fuse))
                     {
-                        m_Cooldown[i] = 0.2f;
+                        m_Cooldown[i] = 0.3f;
                         power -= 1.2f;
                         FireBolt(aimH);
                     }
@@ -306,19 +332,26 @@ public class RobotState : NetworkBehaviour
         if (!TaskOk(Tasks.Vent)) hull -= 0.4f * dt;     // 熱がこもって装甲が傷む
 
         // ---- 歩行（左右の脚レバーの平均で前進、差で旋回）
+        // 重いので、レバーを倒してもすぐには速くならず、戻してもすぐには止まらない
         float pf = power > 0f ? 1f : 0f;
-        float speed = (legL + legR) * 0.5f * 8f * pf;
-        float turn = (legL - legR) * 0.55f * pf;
+        float targetSpeed = (legL + legR) * 0.5f * WalkSpeedMax * pf;
+        float targetTurn = (legL - legR) * TurnSpeedMax * pf;
         // ジャイロが壊れていると、歩いているあいだ左右にふらつく
-        if (!TaskOk(Tasks.Gyro) && Mathf.Abs(speed) > 0.5f) turn += Mathf.Sin(Elapsed.Value * 1.7f) * 0.35f;
-        float yaw = Yaw.Value + turn * dt;
+        if (!TaskOk(Tasks.Gyro) && Mathf.Abs(targetSpeed) > 0.3f) targetTurn += Mathf.Sin(Elapsed.Value * 0.9f) * 0.12f;
+        m_Speed = Mathf.MoveTowards(m_Speed, targetSpeed, WalkAccel * dt);
+        m_Turn = Mathf.MoveTowards(m_Turn, targetTurn, 0.15f * dt);
+        float yaw = Yaw.Value + m_Turn * dt;
         Yaw.Value = yaw;
         var pos = Pos.Value;
-        var np = pos + new Vector2(Mathf.Sin(yaw), Mathf.Cos(yaw)) * speed * dt;
-        if (!ExteriorWorld.Blocked(np, HiveAlive)) pos = np;
-        else if (!ExteriorWorld.Blocked(new Vector2(np.x, pos.y), HiveAlive)) pos.x = np.x;
-        else if (!ExteriorWorld.Blocked(new Vector2(pos.x, np.y), HiveAlive)) pos.y = np.y;
+        var np = pos + new Vector2(Mathf.Sin(yaw), Mathf.Cos(yaw)) * m_Speed * dt;
+        bool Blocked(Vector2 q) => ExteriorWorld.Blocked(q, BossPos.Value, BossAlive);
+        if (!Blocked(np)) pos = np;
+        else if (!Blocked(new Vector2(np.x, pos.y))) pos.x = np.x;
+        else if (!Blocked(new Vector2(pos.x, np.y))) pos.y = np.y;
+        else m_Speed = 0f; // ぶつかったら止まる
         Pos.Value = pos;
+        MoveSpeed.Value = m_Speed;
+        TurnRate.Value = m_Turn;
         power -= ((Mathf.Abs(legL) + Mathf.Abs(legR)) * 0.9f * pf + 0.12f) * dt;
 
         LegL.Value = legL; LegR.Value = legR;
@@ -335,8 +368,7 @@ public class RobotState : NetworkBehaviour
         }
 
         UpdateBolts(dt);
-        UpdateHives(dt);
-        UpdateDrones(dt);
+        UpdateBoss(dt);
         UpdateShots(dt);
 
         if (Hull.Value <= 0f) GameState.Value = Lost;
@@ -346,28 +378,23 @@ public class RobotState : NetworkBehaviour
     {
         float yaw = Yaw.Value + aimH;
         if (!TaskOk(Tasks.Scope)) yaw += Random.Range(-0.3f, 0.3f); // 照準がずれている
-        // 頭（胴体の前寄り）から砲身の先までの位置。RobotVisual の頭の組み立てと合わせてある
         // 頭の右側の砲身の先（RobotVisual の頭の組み立てと合わせてある）
         float c = Mathf.Cos(aimH), sn = Mathf.Sin(aimH);
-        var start = LocalToWorld(1.05f * c + 1.2f * sn, 0.25f - 1.05f * sn + 1.2f * c);
-        m_Bolts.Add(new Bolt { P = start, D = new Vector2(Mathf.Sin(yaw), Mathf.Cos(yaw)), Life = 1.4f });
-        BoltFxRpc(new Vector3(start.x, 18.0f, start.y), yaw);
+        var start = LocalToWorld((1.05f * c + 1.2f * sn) * TitanScale, (0.25f - 1.05f * sn + 1.2f * c) * TitanScale);
+        m_Bolts.Add(new Bolt { P = start, D = new Vector2(Mathf.Sin(yaw), Mathf.Cos(yaw)), Life = 2.4f });
+        BoltFxRpc(new Vector3(start.x, 18.0f * TitanScale, start.y), yaw);
     }
 
     void PunchHit(int side, float aim)
     {
-        // 肩の関節（左右 3.75m）から、腕を前に伸ばしたときの拳の位置
-        const float reach = 8.4f;
-        var fist = LocalToWorld(side * 3.75f + Mathf.Sin(aim) * reach, Mathf.Cos(aim) * reach);
-        bool any = false;
-        for (int i = 0; i < MaxDrones; i++)
+        // 肩の関節から、腕を前に伸ばしたときの拳の位置（大きさに合わせて拡大）
+        float reach = 8.4f * TitanScale, shoulder = 3.75f * TitanScale;
+        var fist = LocalToWorld(side * shoulder + Mathf.Sin(aim) * reach, Mathf.Cos(aim) * reach);
+        if (BossAlive && Vector2.Distance(BossPos.Value, fist) < BossRadius + 4f)
         {
-            var d = m_Drones[i];
-            if (d.Hp > 0 && Vector2.Distance(new Vector2(d.P.x, d.P.z), fist) < 6.5f) { DamageDrone(i, 4); any = true; }
+            DamageBoss(PunchDamage);
+            BoomFxRpc(new Vector3(fist.x, 15.4f * TitanScale, fist.y), 1.6f, new Color(1f, 0.82f, 0.25f));
         }
-        for (int h = 0; h < HiveHp.Count; h++)
-            if (HiveAlive(h) && Vector2.Distance(ExteriorWorld.HivePos[h], fist) < ExteriorWorld.HiveRadius + 2f) { DamageHive(h, 5); any = true; }
-        if (any) BoomFxRpc(new Vector3(fist.x, 15f, fist.y), 0.8f, new Color(1f, 0.82f, 0.25f));
     }
 
     void UpdateBolts(float dt)
@@ -377,92 +404,116 @@ public class RobotState : NetworkBehaviour
             var bolt = m_Bolts[b];
             bolt.P += bolt.D * 75f * dt;
             bolt.Life -= dt;
-            for (int i = 0; i < MaxDrones && bolt.Life > 0f; i++)
+            if (BossAlive && Vector2.Distance(BossPos.Value, bolt.P) < BossRadius)
             {
-                var d = m_Drones[i];
-                if (d.Hp > 0 && Vector2.Distance(new Vector2(d.P.x, d.P.z), bolt.P) < 2.4f) { DamageDrone(i, 1); bolt.Life = 0f; }
+                DamageBoss(1f);
+                bolt.Life = 0f;
+                BoomFxRpc(new Vector3(bolt.P.x, 26f, bolt.P.y), 0.5f, new Color(0.56f, 0.96f, 1f));
             }
-            for (int h = 0; h < HiveHp.Count && bolt.Life > 0f; h++)
-                if (HiveAlive(h) && Vector2.Distance(ExteriorWorld.HivePos[h], bolt.P) < ExteriorWorld.HiveRadius - 1f) { DamageHive(h, 1); bolt.Life = 0f; }
             foreach (var bd in ExteriorWorld.Buildings)
-                if (bolt.Life > 0f && Vector2.Distance(bd.Pos, bolt.P) < bd.Radius) bolt.Life = 0f;
+                if (bolt.Life > 0f && Vector2.Distance(bd.Pos, bolt.P) < bd.Radius && bd.Size.y > 25f) bolt.Life = 0f;
             if (bolt.Life <= 0f) m_Bolts.RemoveAt(b); else m_Bolts[b] = bolt;
         }
     }
 
-    void UpdateHives(float dt)
+    // ================================================================ 巨大な敵の行動
+
+    /// <summary>
+    /// 敵はゆっくりタイタンに近づき、近くまで来たら止まって攻撃する。
+    /// - 振り下ろし（近いとき）：長く振りかぶってから腕を振り下ろす。離れればよけられる
+    /// - 光弾の連射（遠いとき）：口から光の弾を4発
+    /// - 足踏み（たまに）：地面を揺らして装甲を少し削る
+    /// </summary>
+    void UpdateBoss(float dt)
     {
-        for (int h = 0; h < HiveHp.Count; h++)
+        if (!BossAlive) return;
+        var bp = BossPos.Value;
+        var to = Pos.Value - bp;
+        float dist = to.magnitude;
+        float want = Mathf.Atan2(to.x, to.y);
+
+        // 行動中
+        if (BossAction.Value != BossIdle)
         {
-            if (!HiveAlive(h)) continue;
-            if (Vector2.Distance(ExteriorWorld.HivePos[h], Pos.Value) > 115f) continue;
-            m_HiveSpawnT[h] -= dt;
-            if (m_HiveSpawnT[h] > 0f) continue;
-            int mine = 0, free = -1;
-            for (int i = 0; i < MaxDrones; i++)
+            m_BossActT += dt;
+            BossSpeed.Value = 0f;
+            BossYaw.Value = Mathf.MoveTowardsAngle(BossYaw.Value * Mathf.Rad2Deg, want * Mathf.Rad2Deg, 10f * dt) * Mathf.Deg2Rad;
+            switch (BossAction.Value)
             {
-                if (m_Drones[i].Hp > 0 && m_Drones[i].Hive == h) mine++;
-                if (m_Drones[i].Hp <= 0 && free < 0) free = i;
+                case BossSwipe:
+                    if (!m_BossHitDone && m_BossActT >= BossSwipeWindup)
+                    {
+                        m_BossHitDone = true;
+                        if (dist < BossReach) { RobotHit(14f); if (Random.value < 0.5f) StartFire(); }
+                        var tip = bp + new Vector2(Mathf.Sin(BossYaw.Value), Mathf.Cos(BossYaw.Value)) * 22f;
+                        BoomFxRpc(new Vector3(tip.x, 8f, tip.y), 2.2f, new Color(1f, 0.4f, 0.6f));
+                    }
+                    if (m_BossActT >= BossSwipeWindup + 1.2f) EndBossAction();
+                    break;
+                case BossBarrage:
+                    m_BossShotT -= dt;
+                    if (m_BossShotsLeft > 0 && m_BossShotT <= 0f)
+                    {
+                        m_BossShotsLeft--;
+                        m_BossShotT = 0.55f;
+                        var mouth = new Vector3(bp.x, 36f, bp.y) + new Vector3(Mathf.Sin(BossYaw.Value), 0, Mathf.Cos(BossYaw.Value)) * 8f;
+                        var target = new Vector3(Pos.Value.x + Random.Range(-4f, 4f), 22f, Pos.Value.y + Random.Range(-4f, 4f));
+                        var v = (target - mouth).normalized * 30f;
+                        m_Shots.Add(new Shot { P = mouth, V = v, Life = 6f });
+                        ShotFxRpc(mouth, v);
+                    }
+                    if (m_BossShotsLeft <= 0 && m_BossShotT <= -0.8f) EndBossAction();
+                    break;
+                case BossStomp:
+                    if (!m_BossHitDone && m_BossActT >= 1.4f)
+                    {
+                        m_BossHitDone = true;
+                        BoomFxRpc(new Vector3(bp.x, 1f, bp.y), 3.5f, new Color(0.7f, 0.6f, 0.5f));
+                        if (dist < 70f) RobotHit(6f);
+                    }
+                    if (m_BossActT >= 2.6f) EndBossAction();
+                    break;
             }
-            if (mine >= 3 || free < 0) continue;
-            m_HiveSpawnT[h] = 6.5f;
-            var d = m_Drones[free];
-            d.P = new Vector3(ExteriorWorld.HivePos[h].x + Random.Range(-4f, 4f), 16f, ExteriorWorld.HivePos[h].y + Random.Range(-4f, 4f));
-            d.Hp = 3;
-            d.FireT = 2.5f + Random.value * 2f;
-            d.Orbit = Random.value < 0.5f ? 1f : -1f;
-            d.Hive = h;
-            d.Seed = Random.value * 6f;
+            return;
         }
+
+        // 移動：タイタンのほうを向いて、ゆっくり歩いて近づく
+        BossYaw.Value = Mathf.MoveTowardsAngle(BossYaw.Value * Mathf.Rad2Deg, want * Mathf.Rad2Deg, BossTurnSpeed * Mathf.Rad2Deg * dt) * Mathf.Deg2Rad;
+        float speed = dist > BossReach - 6f ? BossWalkSpeed : 0f;
+        var fwd = new Vector2(Mathf.Sin(BossYaw.Value), Mathf.Cos(BossYaw.Value));
+        var nb = bp + fwd * speed * dt;
+        if (Vector2.Distance(nb, Pos.Value) > BossRadius + ExteriorWorld.RobotRadius && Mathf.Abs(nb.x) < ExteriorWorld.Bounds && Mathf.Abs(nb.y) < ExteriorWorld.Bounds) bp = nb;
+        BossPos.Value = bp;
+        BossSpeed.Value = speed;
+
+        // 攻撃を選ぶ
+        m_BossCd -= dt;
+        if (m_BossCd > 0f || dist > 120f) return;
+        int kind = dist < BossReach ? (Random.value < 0.7f ? BossSwipe : BossStomp) : (Random.value < 0.75f ? BossBarrage : BossStomp);
+        BossAction.Value = kind;
+        BossActionId.Value++;
+        m_BossActT = 0f;
+        m_BossHitDone = false;
+        m_BossShotsLeft = 4;
+        m_BossShotT = 0.9f;
     }
 
-    void UpdateDrones(float dt)
+    void EndBossAction()
     {
-        var rp = Pos.Value;
-        for (int i = 0; i < MaxDrones; i++)
-        {
-            var d = m_Drones[i];
-            if (d.Hp <= 0) continue;
-            var to = new Vector2(rp.x - d.P.x, rp.y - d.P.z);
-            float dist = Mathf.Max(0.01f, to.magnitude);
-            var n = to / dist;
-            Vector2 move;
-            if (dist > 26f) move = n * 9f;
-            else move = new Vector2(-n.y, n.x) * d.Orbit * 6f + (dist < 18f ? -n * 5f : Vector2.zero);
-            for (int j = 0; j < MaxDrones; j++)
-            {
-                if (j == i || m_Drones[j].Hp <= 0) continue;
-                var away = new Vector2(d.P.x - m_Drones[j].P.x, d.P.z - m_Drones[j].P.z);
-                float ad = away.magnitude;
-                if (ad < 4f && ad > 0.01f) move += away / ad * 3f;
-            }
-            d.P.x += move.x * dt;
-            d.P.z += move.y * dt;
-            d.P.y += (5f + Mathf.Sin(Elapsed.Value * 2f + d.Seed) * 1.2f - d.P.y) * Mathf.Min(1f, dt * 2f);
+        BossAction.Value = BossIdle;
+        m_BossCd = Random.Range(4.5f, 7.5f);
+    }
 
-            d.FireT -= dt;
-            if (d.FireT <= 0f && dist < 58f)
-            {
-                d.FireT = 3f + Random.value * 2.4f;
-                var target = new Vector3(rp.x, 10.5f, rp.y);
-                var v = (target - d.P).normalized * 24f;
-                m_Shots.Add(new Shot { P = d.P, V = v, Life = 4f });
-                ShotFxRpc(d.P, v);
-            }
-        }
-
-        // 位置の同期は 1 秒に 15 回で十分（見た目側でなめらかにする）
-        m_DroneSyncT -= dt;
-        if (m_DroneSyncT <= 0f)
-        {
-            m_DroneSyncT = 1f / 15f;
-            for (int i = 0; i < MaxDrones; i++)
-            {
-                var d = m_Drones[i];
-                var v = new Vector4(d.P.x, d.P.y, d.P.z, d.Hp);
-                if (Drones[i] != v) Drones[i] = v;
-            }
-        }
+    void DamageBoss(float dmg)
+    {
+        if (!BossAlive) return;
+        BossHp.Value = Mathf.Max(0f, BossHp.Value - dmg);
+        Score.Value += Mathf.RoundToInt(dmg * 10f);
+        if (BossHp.Value > 0f) return;
+        var bp = BossPos.Value;
+        BoomFxRpc(new Vector3(bp.x, 20f, bp.y), 6f, new Color(1f, 0.24f, 0.5f));
+        Score.Value += 3000 + Mathf.Max(0, 3000 - Mathf.FloorToInt(Elapsed.Value) * 5);
+        GameState.Value = Won;
     }
 
     void UpdateShots(float dt)
@@ -473,11 +524,12 @@ public class RobotState : NetworkBehaviour
             var shot = m_Shots[s];
             shot.P += shot.V * dt;
             shot.Life -= dt;
-            if (Vector2.Distance(new Vector2(shot.P.x, shot.P.z), rp) < 5.4f && shot.P.y < 15f)
+            if (Vector2.Distance(new Vector2(shot.P.x, shot.P.z), rp) < ExteriorWorld.RobotRadius && shot.P.y < 19f * TitanScale)
             {
                 shot.Life = 0f;
-                RobotHit(4f);
+                RobotHit(5f);
             }
+            if (shot.P.y < 0f) shot.Life = 0f;
             if (shot.Life <= 0f) m_Shots.RemoveAt(s); else m_Shots[s] = shot;
         }
     }
@@ -513,30 +565,4 @@ public class RobotState : NetworkBehaviour
         TaskBroken[ok[Random.Range(0, ok.Count)]] = 1;
     }
 
-    void DamageDrone(int i, int dmg)
-    {
-        var d = m_Drones[i];
-        d.Hp -= dmg;
-        if (d.Hp > 0) return;
-        d.Hp = 0;
-        Drones[i] = new Vector4(d.P.x, d.P.y, d.P.z, 0);
-        Score.Value += 100;
-        Kills.Value += 1;
-        BoomFxRpc(d.P, 1f, new Color(1f, 0.24f, 0.5f));
-    }
-
-    void DamageHive(int h, int dmg)
-    {
-        HiveHp[h] = Mathf.Max(0, HiveHp[h] - dmg);
-        if (HiveHp[h] > 0) return;
-        var hp = ExteriorWorld.HivePos[h];
-        BoomFxRpc(new Vector3(hp.x, 12f, hp.y), 3f, new Color(1f, 0.24f, 0.5f));
-        Score.Value += 1000;
-        for (int i = 0; i < MaxDrones; i++) if (m_Drones[i].Hive == h) m_Drones[i].Hive = -1;
-        if (HivesLeft == 0)
-        {
-            Score.Value += Mathf.Max(0, 3000 - Mathf.FloorToInt(Elapsed.Value) * 5);
-            GameState.Value = Won;
-        }
-    }
 }

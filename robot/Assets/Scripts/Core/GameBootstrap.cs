@@ -117,8 +117,8 @@ public class GameBootstrap : MonoBehaviour
         Vector3 pos, look;
         if (robot != null)
         {
-            pos = robot.Root.TransformPoint(new Vector3(0f, 26f, -34f));
-            look = robot.Root.TransformPoint(new Vector3(0f, 11f, 14f));
+            pos = robot.Root.TransformPoint(new Vector3(0f, 26f, -34f) / RobotState.TitanScale * 1.6f);
+            look = robot.Root.TransformPoint(new Vector3(0f, 11f, 14f) / RobotState.TitanScale * 1.6f);
         }
         else
         {
@@ -315,7 +315,7 @@ public class GameBootstrap : MonoBehaviour
         DrawRect(r, new Color(0.06f, 0.08f, 0.1f, 0.92f));
         GUILayout.BeginArea(new Rect(r.x + 24 * s, r.y + 20 * s, r.width - 48 * s, r.height - 40 * s));
         GUILayout.Label("タイタンクルー", m_Title);
-        GUILayout.Label("巨大ロボットの中を走り回り、脚・腕・頭部砲・動力炉の席に乗り込んで、1体のロボットを動かそう。3つの敵の巣を壊せば勝ち。", m_Label);
+        GUILayout.Label("巨大ロボットの中を走り回り、脚・腕・頭部砲・動力炉の席に乗り込んで、1体のロボットを動かそう。巨大な敵を倒せば勝ち。", m_Label);
         GUILayout.Space(12 * s);
 
 #if !HAS_NETCODE
@@ -507,21 +507,27 @@ public class GameBootstrap : MonoBehaviour
         DrawBar(new Rect(x, y, w, 22 * s), rs.Hull.Value / RobotState.MaxHull, Prims.Hex("#ff6a4a"), $"装甲  {Mathf.CeilToInt(rs.Hull.Value)}");
         DrawBar(new Rect(x, y + 30 * s, w, 22 * s), rs.Power.Value / RobotState.MaxPower, Prims.Hex("#d9a920"), $"動力  {Mathf.CeilToInt(rs.Power.Value)}");
         int t = Mathf.FloorToInt(rs.Elapsed.Value);
-        GUI.Label(new Rect(x, y + 60 * s, w, 24 * s), $"敵の巣 残り <color=#ff6aa0>{rs.HivesLeft}</color>　スコア <color=#ffb000>{rs.Score.Value}</color>　{t / 60}:{t % 60:00}", m_Label);
-        // 一番近い巣の方角
-        int near = -1; float nd = float.MaxValue;
-        for (int i = 0; i < ExteriorWorld.HivePos.Length; i++)
+        GUI.Label(new Rect(x, y + 60 * s, w, 24 * s), $"スコア <color=#ffb000>{rs.Score.Value}</color>　{t / 60}:{t % 60:00}", m_Label);
+        // 巨大な敵がどの方向・どのくらい先にいるか
+        if (rs.BossAlive)
         {
-            if (!rs.HiveAlive(i)) continue;
-            float d = Vector2.Distance(ExteriorWorld.HivePos[i], rs.Pos.Value);
-            if (d < nd) { nd = d; near = i; }
-        }
-        if (near >= 0)
-        {
-            var to = ExteriorWorld.HivePos[near] - rs.Pos.Value;
+            var to = rs.BossPos.Value - rs.Pos.Value;
             float rel = Mathf.DeltaAngle(rs.Yaw.Value * Mathf.Rad2Deg, Mathf.Atan2(to.x, to.y) * Mathf.Rad2Deg);
             string dir = Mathf.Abs(rel) < 20f ? "正面" : rel > 0 ? (rel < 100f ? "右前" : "右後ろ") : (rel > -100f ? "左前" : "左後ろ");
-            GUI.Label(new Rect(x, y + 86 * s, w, 24 * s), $"<color=#93a6ae>近い巣：{dir} {Mathf.RoundToInt(nd)}m</color>", m_Small);
+            GUI.Label(new Rect(x, y + 86 * s, w, 24 * s), $"<color=#93a6ae>敵：{dir} {Mathf.RoundToInt(to.magnitude)}m</color>", m_Small);
+        }
+
+        // 巨大な敵の体力（画面の右半分の下）
+        if (rs.BossAlive)
+        {
+            float bw = Mathf.Min(Screen.width * 0.5f - 40 * s, 520 * s);
+            var br = new Rect(Screen.width * 0.75f - bw * 0.5f, Screen.height - 54 * s, bw, 20 * s);
+            DrawRect(new Rect(br.x - 6 * s, br.y - 26 * s, br.width + 12 * s, br.height + 34 * s), new Color(0.06f, 0.08f, 0.1f, 0.85f));
+            GUI.Label(new Rect(br.x, br.y - 24 * s, br.width, 22 * s), "<b><color=#ff6aa0>巨大な敵</color></b>", m_Label);
+            DrawBar(br, rs.BossHp.Value / RobotState.BossMaxHp, Prims.Hex("#ff3d7f"), $"{Mathf.CeilToInt(rs.BossHp.Value)}");
+            // 振りかぶっているときは警告
+            if (rs.BossAction.Value == RobotState.BossSwipe)
+                GUI.Label(new Rect(br.x, br.y - 50 * s, br.width, 24 * s), "<color=#ff6a4a><b>⚠ 敵が腕を振りかぶっている！ 離れろ</b></color>", m_Label);
         }
 
 #if HAS_NETCODE
@@ -592,9 +598,9 @@ public class GameBootstrap : MonoBehaviour
         DrawRect(new Rect(0, 0, Screen.width, Screen.height), new Color(0, 0, 0, 0.55f));
         float s = m_Scale;
         m_Big.normal.textColor = won ? Prims.Hex("#ffb000") : Prims.Hex("#ff6a4a");
-        GUI.Label(new Rect(0, Screen.height * 0.36f, Screen.width, 60 * s), won ? "任務完了" : "タイタン大破", m_Big);
+        GUI.Label(new Rect(0, Screen.height * 0.36f, Screen.width, 60 * s), won ? "巨大な敵を倒した！" : "タイタン大破", m_Big);
         int t = Mathf.FloorToInt(rs.Elapsed.Value);
-        var info = $"スコア {rs.Score.Value}　撃墜 {rs.Kills.Value}　時間 {t / 60}:{t % 60:00}\n" +
+        var info = $"スコア {rs.Score.Value}　時間 {t / 60}:{t % 60:00}\n" +
                    (networkManager.IsServer ? "R キーでもう一度出撃" : "ホストが再出撃するのを待っています");
         var style = new GUIStyle(m_Label) { alignment = TextAnchor.MiddleCenter };
         GUI.Label(new Rect(0, Screen.height * 0.36f + 70 * s, Screen.width, 60 * s), info, style);
