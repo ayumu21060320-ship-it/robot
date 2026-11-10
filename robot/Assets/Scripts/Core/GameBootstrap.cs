@@ -42,6 +42,7 @@ public class GameBootstrap : MonoBehaviour
         ExteriorWorld.Build(transform);
         m_Interior = InteriorMap.Build(transform);
         SetupCameras();
+        gameObject.AddComponent<TaskUI>();
         m_LanAddresses = FindLanAddresses();
 
         RenderSettings.fog = true;
@@ -150,6 +151,14 @@ public class GameBootstrap : MonoBehaviour
             float pulse = 0.55f + Mathf.Sin(Time.time * 3f + i) * 0.15f;
             var padColor = fire ? Prims.Hex("#5a2a20") : occupied ? c : Color.Lerp(Prims.Hex("#6a747c"), c, pulse);
             m_Interior.Pads[i].color = padColor;
+        }
+        // 壊れた整備装置の上の「！」を点滅させる
+        for (int i = 0; i < Tasks.Count; i++)
+        {
+            bool broken = rs != null && !rs.TaskOk(i);
+            var alert = m_Interior.TaskAlerts[i];
+            if (alert.gameObject.activeSelf != broken) alert.gameObject.SetActive(broken);
+            if (broken) alert.transform.localScale = Vector3.one * (1f + Mathf.Abs(Mathf.Sin(Time.time * 4f)) * 0.25f);
         }
         if (rs != null)
         {
@@ -283,6 +292,7 @@ public class GameBootstrap : MonoBehaviour
         DrawSplitLine();
         DrawInteriorLabels();
         DrawMinimap();
+        DrawTaskList();
         DrawStatus();
         DrawPrompt();
         DrawEnd();
@@ -369,6 +379,18 @@ public class GameBootstrap : MonoBehaviour
             m_Tag.normal.textColor = fire ? Color.white : def.Color;
             GUI.Label(r, fire ? def.Name + " 火災！" : def.Name, m_Tag);
         }
+        for (int i = 0; i < Tasks.Count; i++)
+        {
+            if (rs == null || rs.TaskOk(i)) continue;
+            var t = Tasks.All[i];
+            var sp = m_InteriorCam.WorldToScreenPoint(InteriorMap.ToWorld(t.Pos + t.PanelOffset + new Vector2(0f, 1.9f), 1f));
+            if (sp.x < 0 || sp.x > Screen.width * 0.5f) continue;
+            float w = 130 * s, h = 24 * s;
+            var r = new Rect(sp.x - w * 0.5f, Screen.height - sp.y - h, w, h);
+            DrawRect(r, new Color(0.6f, 0.1f, 0.05f, 0.9f));
+            m_Tag.normal.textColor = Color.white;
+            GUI.Label(r, t.Name + " 故障", m_Tag);
+        }
         foreach (var p in CrewPlayer.All)
         {
             var sp = m_InteriorCam.WorldToScreenPoint(InteriorMap.ToWorld(p.DisplayPos + new Vector2(0f, 1.85f), 1f));
@@ -451,6 +473,17 @@ public class GameBootstrap : MonoBehaviour
         DrawRect(new Rect(view.x, view.y, t, view.height), line);
         DrawRect(new Rect(view.xMax - t, view.y, t, view.height), line);
 
+        if (rs != null && Mathf.Sin(Time.time * 8f) > -0.3f)
+        {
+            for (int i = 0; i < Tasks.Count; i++)
+            {
+                if (rs.TaskOk(i)) continue;
+                var c = ToMap(Tasks.All[i].Pos);
+                float d = 9f * s;
+                DrawRect(new Rect(c.x - d * 0.5f - 1.5f, c.y - d * 0.5f - 1.5f, d + 3f, d + 3f), Color.white);
+                DrawRect(new Rect(c.x - d * 0.5f, c.y - d * 0.5f, d, d), new Color(0.92f, 0.24f, 0.2f));
+            }
+        }
         foreach (var p in CrewPlayer.All)
         {
             var c = ToMap(p.DisplayPos);
@@ -458,6 +491,29 @@ public class GameBootstrap : MonoBehaviour
             float d = (me ? 10f + Mathf.Sin(Time.time * 6f) * 2f : 8f) * s;
             if (me) DrawRect(new Rect(c.x - d * 0.5f - 2f, c.y - d * 0.5f - 2f, d + 4f, d + 4f), Color.white);
             DrawRect(new Rect(c.x - d * 0.5f, c.y - d * 0.5f, d, d), p.Color);
+        }
+    }
+
+    /// <summary>左半分の左上に、故障中の装置の一覧を出す。</summary>
+    void DrawTaskList()
+    {
+        var rs = RobotState.Instance;
+        if (rs == null || rs.TaskBroken.Count != Tasks.Count) return;
+        int n = rs.TasksBroken;
+        float s = m_Scale;
+        float x = 12 * s, y = 32 * s, w = Mathf.Min(300 * s, Screen.width * 0.5f * 0.5f);
+        float lineH = 36 * s;
+        float h = 26 * s + Mathf.Max(1, n) * lineH;
+        DrawRect(new Rect(x - 6 * s, y - 4 * s, w + 12 * s, h + 8 * s), new Color(0.04f, 0.06f, 0.07f, 0.82f));
+        GUI.Label(new Rect(x, y, w, 22 * s), n > 0 ? $"<color=#ff8a6a><b>故障中の装置 {n}</b></color>" : "<color=#7dff6a><b>すべての装置が正常</b></color>", m_Small);
+        float yy = y + 26 * s;
+        for (int i = 0; i < Tasks.Count; i++)
+        {
+            if (rs.TaskOk(i)) continue;
+            var t = Tasks.All[i];
+            bool working = TaskUI.CurrentTask == i;
+            GUI.Label(new Rect(x, yy, w, lineH), $"<b>{t.Name}</b>（{t.Room}）{(working ? "<color=#ffb000> 修理中</color>" : "")}\n<color=#93a6ae>{t.Effect}</color>", m_Small);
+            yy += lineH;
         }
     }
 
@@ -535,10 +591,17 @@ public class GameBootstrap : MonoBehaviour
             hint = fire ? $"<color=#ff8a6a>火災！ Space 連打で消火（あと {rs.FireHp[me.NearStation]} 回）</color>"
                  : taken ? "ほかの乗組員が操縦中" : "E で席に乗る";
         }
+        else if (me.NearTask >= 0)
+        {
+            var t = Tasks.All[me.NearTask];
+            where = t.Name;
+            hint = rs.TaskOk(me.NearTask) ? "<color=#93a6ae>正常に動いている</color>"
+                 : $"<color=#ff8a6a>故障中（{t.Effect}）</color>　E で修理する";
+        }
         else
         {
             where = InteriorMap.AreaName(me.Pos.Value);
-            hint = "WASD で移動。光っている操作盤に近づこう";
+            hint = rs.TasksBroken > 0 ? "WASD で移動。故障した装置（赤い ！）を直そう" : "WASD で移動。光っている操作盤に近づこう";
         }
         float w = Mathf.Min(Screen.width * 0.5f - 24 * s, 520 * s), h = 76 * s;
         var r = new Rect(12 * s, Screen.height - h - 12 * s, w, h);

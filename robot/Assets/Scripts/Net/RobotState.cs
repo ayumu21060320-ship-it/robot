@@ -36,6 +36,7 @@ public class RobotState : NetworkBehaviour
     public NetworkList<int> FireHp;     // 席ごとの火災（0 = 燃えていない、残り消火回数）
     public NetworkList<int> HiveHp;
     public NetworkList<Vector4> Drones; // x, y, z, hp（hp <= 0 は空き枠）
+    public NetworkList<int> TaskBroken; // 整備タスクごとに 1 = 故障中
 
     RobotVisual m_Visual;
 
@@ -48,6 +49,7 @@ public class RobotState : NetworkBehaviour
     readonly List<Bolt> m_Bolts = new List<Bolt>();
     readonly List<Shot> m_Shots = new List<Shot>();
     float m_DroneSyncT;
+    float m_TaskBreakT;
 
     class DroneSim { public Vector3 P; public int Hp; public float FireT; public float Orbit; public int Hive; public float Seed; }
     struct Bolt { public Vector2 P; public Vector2 D; public float Life; }
@@ -59,6 +61,7 @@ public class RobotState : NetworkBehaviour
         FireHp = new NetworkList<int>();
         HiveHp = new NetworkList<int>();
         Drones = new NetworkList<Vector4>();
+        TaskBroken = new NetworkList<int>();
         for (int i = 0; i < MaxDrones; i++) m_Drones[i] = new DroneSim();
     }
 
@@ -73,6 +76,13 @@ public class RobotState : NetworkBehaviour
     public override void OnNetworkDespawn()
     {
         if (Instance == this) Instance = null;
+    }
+
+    public bool TaskOk(int i) => i >= TaskBroken.Count || TaskBroken[i] == 0;
+
+    public int TasksBroken
+    {
+        get { int n = 0; for (int i = 0; i < TaskBroken.Count; i++) if (TaskBroken[i] != 0) n++; return n; }
     }
 
     public bool HiveAlive(int i) => i < HiveHp.Count && HiveHp[i] > 0;
@@ -112,6 +122,17 @@ public class RobotState : NetworkBehaviour
         if (p == null || index < 0 || index >= Stations.Count || FireHp[index] <= 0) return;
         if (Vector2.Distance(p.Pos.Value, Stations.All[index].Pos) > CrewPlayer.UseRange + 0.6f) return;
         FireHp[index] = FireHp[index] - 1;
+    }
+
+    /// <summary>整備タスクのミニゲームをやり終えた</summary>
+    [Rpc(SendTo.Server)]
+    public void CompleteTaskRpc(int index, RpcParams rpcParams = default)
+    {
+        var p = GetPlayer(rpcParams.Receive.SenderClientId);
+        if (p == null || index < 0 || index >= TaskBroken.Count || TaskBroken[index] == 0) return;
+        if (Vector2.Distance(p.Pos.Value, Tasks.All[index].Pos) > CrewPlayer.UseRange + 0.8f) return;
+        TaskBroken[index] = 0;
+        Score.Value += 50;
     }
 
     [Rpc(SendTo.Server)]
@@ -154,6 +175,9 @@ public class RobotState : NetworkBehaviour
         for (int i = 0; i < Stations.Count; i++) { Occupant.Add(0); FireHp.Add(0); m_Cooldown[i] = 0f; }
         HiveHp.Clear();
         for (int i = 0; i < ExteriorWorld.HivePos.Length; i++) { HiveHp.Add(ExteriorWorld.HiveMaxHp); m_HiveSpawnT[i] = 2f; }
+        TaskBroken.Clear();
+        for (int i = 0; i < Tasks.Count; i++) TaskBroken.Add(0);
+        m_TaskBreakT = 15f;
         Drones.Clear();
         for (int i = 0; i < MaxDrones; i++) { m_Drones[i].Hp = 0; Drones.Add(Vector4.zero); }
         m_Bolts.Clear();
@@ -215,7 +239,9 @@ public class RobotState : NetworkBehaviour
                 case StationType.Leg:
                 {
                     float lever = i == Stations.LeftLeg ? legL : legR;
-                    lever = Mathf.Clamp(lever + stick.y * 0.9f * dt, -0.5f, 1f);
+                    // 油圧が壊れていると、レバーを全部は倒せない
+                    float max = TaskOk(i == Stations.LeftLeg ? Tasks.GaugeL : Tasks.GaugeR) ? 1f : 0.4f;
+                    lever = Mathf.Clamp(lever + stick.y * 0.9f * dt, -0.5f, max);
                     if (Mathf.Abs(stick.y) < 0.1f && Mathf.Abs(lever) < 0.05f) lever = 0f;
                     if (pressed) lever = 0f;
                     if (i == Stations.LeftLeg) legL = lever; else legR = lever;
@@ -228,7 +254,8 @@ public class RobotState : NetworkBehaviour
                     if (k == 0) aimL = aim; else aimR = aim;
                     if (pressed && m_Cooldown[i] <= 0f && power >= 3f)
                     {
-                        m_Cooldown[i] = 0.7f;
+                        // 配線が壊れていると、次のパンチまでが長い
+                        m_Cooldown[i] = TaskOk(k == 0 ? Tasks.WiresL : Tasks.WiresR) ? 0.7f : 2.2f;
                         power -= 3f;
                         m_PunchHitAt[k] = 0.15f;
                         if (k == 0) PunchL.Value++; else PunchR.Value++;
@@ -238,7 +265,8 @@ public class RobotState : NetworkBehaviour
                 case StationType.Head:
                 {
                     aimH = Mathf.Clamp(aimH + stick.x * 1.6f * dt, -1.7f, 1.7f);
-                    if (held && m_Cooldown[i] <= 0f && power >= 1.2f)
+                    // ヒューズが切れていると撃てない
+                    if (held && m_Cooldown[i] <= 0f && power >= 1.2f && TaskOk(Tasks.Fuse))
                     {
                         m_Cooldown[i] = 0.2f;
                         power -= 1.2f;
@@ -264,10 +292,25 @@ public class RobotState : NetworkBehaviour
             if (i == Stations.RightLeg) legR = Mathf.MoveTowards(legR, 0f, 0.5f * dt);
         }
 
+        // ---- 整備タスクの故障
+        m_TaskBreakT -= dt;
+        if (m_TaskBreakT <= 0f)
+        {
+            BreakRandomTask();
+            m_TaskBreakT = Random.Range(16f, 28f);
+        }
+        // 油圧の故障で、すでに倒れているレバーも戻される
+        if (!TaskOk(Tasks.GaugeL)) legL = Mathf.Min(legL, 0.4f);
+        if (!TaskOk(Tasks.GaugeR)) legR = Mathf.Min(legR, 0.4f);
+        if (!TaskOk(Tasks.Valve)) power -= 1.5f * dt;   // 冷却が止まって動力が漏れる
+        if (!TaskOk(Tasks.Vent)) hull -= 0.4f * dt;     // 熱がこもって装甲が傷む
+
         // ---- 歩行（左右の脚レバーの平均で前進、差で旋回）
         float pf = power > 0f ? 1f : 0f;
         float speed = (legL + legR) * 0.5f * 8f * pf;
         float turn = (legL - legR) * 0.55f * pf;
+        // ジャイロが壊れていると、歩いているあいだ左右にふらつく
+        if (!TaskOk(Tasks.Gyro) && Mathf.Abs(speed) > 0.5f) turn += Mathf.Sin(Elapsed.Value * 1.7f) * 0.35f;
         float yaw = Yaw.Value + turn * dt;
         Yaw.Value = yaw;
         var pos = Pos.Value;
@@ -302,6 +345,7 @@ public class RobotState : NetworkBehaviour
     void FireBolt(float aimH)
     {
         float yaw = Yaw.Value + aimH;
+        if (!TaskOk(Tasks.Scope)) yaw += Random.Range(-0.3f, 0.3f); // 照準がずれている
         // 頭（胴体の前寄り）から砲身の先までの位置。RobotVisual の頭の組み立てと合わせてある
         var start = LocalToWorld(Mathf.Sin(aimH) * 4f, 1.8f + Mathf.Cos(aimH) * 4f);
         m_Bolts.Add(new Bolt { P = start, D = new Vector2(Mathf.Sin(yaw), Mathf.Cos(yaw)), Life = 1.4f });
@@ -440,6 +484,7 @@ public class RobotState : NetworkBehaviour
         Hull.Value = Mathf.Max(0f, Hull.Value - dmg);
         HitFxRpc();
         if (Random.value < 0.33f) StartFire();
+        if (Random.value < 0.2f) BreakRandomTask();
     }
 
     void StartFire()
@@ -455,6 +500,14 @@ public class RobotState : NetworkBehaviour
             var p = GetPlayer((ulong)(occ - 1));
             if (p != null) Unseat(p); else Occupant[st] = 0;
         }
+    }
+
+    void BreakRandomTask()
+    {
+        var ok = new List<int>();
+        for (int i = 0; i < TaskBroken.Count; i++) if (TaskBroken[i] == 0) ok.Add(i);
+        if (ok.Count == 0) return;
+        TaskBroken[ok[Random.Range(0, ok.Count)]] = 1;
     }
 
     void DamageDrone(int i, int dmg)

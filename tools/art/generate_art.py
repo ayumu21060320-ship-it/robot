@@ -301,6 +301,173 @@ def white():
     return Image.new("RGBA", (8, 8), (255, 255, 255, 255))
 
 
+# ------------------------------------------------------------------ 障害物と床の飾り
+
+def crate():
+    """木箱（1.3m）。"""
+    S = 84
+    img = canvas(S, S)
+    d = ImageDraw.Draw(img)
+    rr(d, (6, 22, S - 6, S - 4), 6, fill=(150, 104, 60, 255), outline=INK)
+    rr(d, (6, 6, S - 6, 46), 6, fill=(196, 146, 88, 255), outline=INK)
+    line(d, [(12, 12), (S - 12, 40)], fill=(150, 104, 60, 255), width=5)
+    line(d, [(S - 12, 12), (12, 40)], fill=(150, 104, 60, 255), width=5)
+    rr(d, (30, 56, S - 30, 70), 3, fill=(255, 190, 40, 255), outline=INK, width=3)
+    return finish(img)
+
+
+def tanks():
+    """ガスタンクの束（2.6m）。"""
+    S = 168
+    img = canvas(S, S)
+    d = ImageDraw.Draw(img)
+    ell(d, (6, 120, S - 6, S - 6), fill=(40, 46, 54, 255))
+    for i, (x, col) in enumerate(((14, (90, 150, 210, 255)), (62, (210, 80, 70, 255)), (110, (90, 150, 210, 255)))):
+        rr(d, (x, 34, x + 46, 150), 20, fill=col, outline=INK)
+        rr(d, (x + 8, 44, x + 16, 132), 4, fill=(255, 255, 255, 90))
+        ell(d, (x, 20, x + 46, 52), fill=tuple(min(255, c + 30) for c in col[:3]) + (255,), outline=INK)
+        rr(d, (x + 16, 10, x + 30, 26), 3, fill=(170, 180, 190, 255), outline=INK, width=3)
+        rr(d, (x, 96, x + 46, 104), 2, fill=(255, 190, 40, 255))
+    return finish(img)
+
+
+def machine():
+    """計器の付いた機械のかたまり（3.9m x 2.6m）。"""
+    W, H = 250, 168
+    img = canvas(W, H)
+    d = ImageDraw.Draw(img)
+    rr(d, (6, 40, W - 6, H - 6), 10, fill=(70, 80, 92, 255), outline=INK)
+    rr(d, (6, 8, W - 6, 96), 10, fill=(122, 136, 148, 255), outline=INK)
+    for i in range(3):
+        cx = 50 + i * 75
+        ell(d, (cx - 24, 22, cx + 24, 70), fill=(232, 236, 240, 255), outline=INK, width=4)
+        a = math.radians(200 + i * 55)
+        line(d, [(cx, 46), (cx + math.cos(a) * 18, 46 + math.sin(a) * 18)], fill=(220, 60, 50, 255), width=4)
+        ell(d, (cx - 4, 42, cx + 4, 50), fill=INK)
+    for i in range(6):
+        x = 26 + i * 34
+        rr(d, (x, 112, x + 22, 150), 3, fill=(40, 48, 56, 255))
+        rr(d, (x + 4, 118 + (i * 7) % 18, x + 18, 146), 2, fill=(255, 190, 40, 255) if i % 2 else (90, 220, 120, 255))
+    return finish(img)
+
+
+def monitors():
+    """モニターの並んだ机（2.6m x 1.6m）。"""
+    W, H = 168, 104
+    img = canvas(W, H)
+    d = ImageDraw.Draw(img)
+    rr(d, (4, 50, W - 4, H - 4), 8, fill=(70, 80, 92, 255), outline=INK)
+    for i in range(3):
+        x = 10 + i * 52
+        rr(d, (x, 6, x + 46, 52), 6, fill=(40, 48, 56, 255), outline=INK, width=4)
+        rr(d, (x + 6, 12, x + 40, 44), 3, fill=((70, 200, 236, 255), (90, 220, 120, 255), (255, 190, 40, 255))[i])
+        for k in range(3):
+            line(d, [(x + 10, 18 + k * 8), (x + 30 - k * 6, 18 + k * 8)], fill=(255, 255, 255, 140), width=2)
+    return finish(img)
+
+
+def pipes_h():
+    """床をはう配管（横に繰り返す。2m x 0.75m）。"""
+    W, H = 128, 48
+    img = canvas(W, H)
+    d = ImageDraw.Draw(img)
+    for y, col in ((6, (196, 120, 70, 255)), (26, (120, 160, 190, 255))):
+        rr(d, (-10, y, W + 10, y + 16), 7, fill=col, outline=INK, width=3)
+        rr(d, (-10, y + 3, W + 10, y + 6), 2, fill=(255, 255, 255, 80))
+    for x in (30, 94):
+        rr(d, (x, 2, x + 10, 46), 3, fill=(90, 100, 110, 255), outline=INK, width=3)
+    return finish(img)
+
+
+def grate():
+    """床の排気口の網（1.3m）。"""
+    S = 84
+    img = canvas(S, S)
+    d = ImageDraw.Draw(img)
+    rr(d, (4, 4, S - 4, S - 4), 6, fill=(60, 68, 76, 255), outline=INK, width=4)
+    for y in range(14, S - 10, 10):
+        rr(d, (12, y, S - 12, y + 5), 2, fill=(24, 28, 32, 255))
+    return finish(img)
+
+
+def stripes():
+    """警告の縞模様（2m x 0.5m。横に繰り返す）。"""
+    W, H = 128, 32
+    img = canvas(W, H)
+    d = ImageDraw.Draw(img)
+    rr(d, (0, 0, W, H), 0, fill=(255, 190, 40, 255))
+    for x in range(-H, W + H, 32):
+        poly(d, [(x, H), (x + 16, H), (x + 16 + H, 0), (x + H, 0)], fill=(30, 34, 40, 255))
+    return finish(img)
+
+
+# ------------------------------------------------------------------ 整備タスクの装置とミニゲーム
+
+def task_panel(kind):
+    """壁ぎわの整備装置（1.6m x 1.3m）。"""
+    W, H = 104, 84
+    img = canvas(W, H)
+    d = ImageDraw.Draw(img)
+    rr(d, (4, 30, W - 4, H - 4), 8, fill=(70, 80, 92, 255), outline=INK)
+    rr(d, (4, 4, W - 4, 52), 8, fill=(160, 170, 180, 255), outline=INK)
+    rr(d, (10, 56, W - 10, 64), 2, fill=(255, 190, 40, 255))
+    cx, cy = W / 2, 28
+    if kind == "valve":
+        ell(d, (cx - 20, cy - 20, cx + 20, cy + 20), outline=(200, 60, 50, 255), width=6)
+        line(d, [(cx - 20, cy), (cx + 20, cy)], fill=(200, 60, 50, 255), width=5)
+        line(d, [(cx, cy - 20), (cx, cy + 20)], fill=(200, 60, 50, 255), width=5)
+    elif kind == "wires":
+        for i, col in enumerate(((220, 60, 50), (60, 120, 220), (240, 200, 40), (80, 200, 90))):
+            line(d, [(cx - 30, cy - 14 + i * 9), (cx - 8, cy - 14 + ((i * 3) % 4) * 9), (cx + 30, cy - 14 + ((i * 3) % 4) * 9)], fill=col + (255,), width=4)
+    elif kind == "gauge":
+        ell(d, (cx - 20, cy - 20, cx + 20, cy + 20), fill=(240, 240, 236, 255), outline=INK, width=4)
+        line(d, [(cx, cy), (cx + 12, cy - 12)], fill=(220, 60, 50, 255), width=4)
+    elif kind == "fuse":
+        for i in range(4):
+            rr(d, (cx - 32 + i * 17, cy - 16, cx - 22 + i * 17, cy + 16), 3, fill=(230, 230, 220, 255), outline=INK, width=3)
+    elif kind == "scope":
+        ell(d, (cx - 20, cy - 20, cx + 20, cy + 20), fill=(30, 60, 40, 255), outline=INK, width=4)
+        ell(d, (cx - 10, cy - 10, cx + 10, cy + 10), outline=(150, 255, 90, 255), width=3)
+        line(d, [(cx - 20, cy), (cx + 20, cy)], fill=(150, 255, 90, 255), width=2)
+    elif kind == "vent":
+        for y in range(cy - 16, cy + 18, 8):
+            rr(d, (cx - 30, y, cx + 30, y + 4), 2, fill=(30, 34, 40, 255))
+    elif kind == "gyro":
+        ell(d, (cx - 20, cy - 20, cx + 20, cy + 20), outline=(70, 200, 236, 255), width=4)
+        ell(d, (cx - 20, cy - 8, cx + 20, cy + 8), outline=(70, 200, 236, 255), width=3)
+        ell(d, (cx - 5, cy - 5, cx + 5, cy + 5), fill=(255, 190, 40, 255))
+    return finish(img)
+
+
+def alert():
+    """壊れた装置の上に出す「！」（0.9m）。"""
+    S = 58
+    img = canvas(S, S)
+    d = ImageDraw.Draw(img)
+    ell(d, (4, 4, S - 4, S - 4), fill=(235, 60, 50, 255), outline=INK, width=4)
+    rr(d, (S / 2 - 4, 13, S / 2 + 4, 34), 3, fill=(255, 255, 255, 255))
+    ell(d, (S / 2 - 4.5, 38, S / 2 + 4.5, 47), fill=(255, 255, 255, 255))
+    return finish(img)
+
+
+def valve_wheel():
+    """ミニゲーム用の大きなバルブ（256px）。"""
+    S = 256
+    img = canvas(S, S)
+    d = ImageDraw.Draw(img)
+    c = S / 2
+    ell(d, (14, 14, S - 14, S - 14), outline=(200, 60, 50, 255), width=26)
+    ell(d, (14, 14, S - 14, S - 14), outline=INK, width=5)
+    ell(d, (40, 40, S - 40, S - 40), outline=INK, width=5)
+    for a in (0, 60, 120):
+        r = math.radians(a)
+        dx, dy = math.cos(r) * 100, math.sin(r) * 100
+        line(d, [(c - dx, c - dy), (c + dx, c + dy)], fill=INK, width=20)
+        line(d, [(c - dx, c - dy), (c + dx, c + dy)], fill=(200, 60, 50, 255), width=12)
+    ell(d, (c - 26, c - 26, c + 26, c + 26), fill=(160, 170, 180, 255), outline=INK, width=5)
+    return finish(img)
+
+
 # ------------------------------------------------------------------ 書き出し
 
 def build():
@@ -322,6 +489,17 @@ def build():
     out["white"] = white()
     out["gear"] = gear()
     out["piston"] = piston()
+    out["crate"] = crate()
+    out["tanks"] = tanks()
+    out["machine"] = machine()
+    out["monitors"] = monitors()
+    out["pipes_h"] = pipes_h()
+    out["grate"] = grate()
+    out["stripes"] = stripes()
+    for k in ("valve", "wires", "gauge", "fuse", "scope", "vent", "gyro"):
+        out["task_" + k] = task_panel(k)
+    out["alert"] = alert()
+    out["valve_wheel"] = valve_wheel()
     for name, img in out.items():
         img.save(os.path.join(OUT, name + ".png"))
     return out
