@@ -24,6 +24,7 @@ public class CrewPlayer : NetworkBehaviour
     public NetworkVariable<Vector2> Stick = new NetworkVariable<Vector2>(default, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Owner);
     public NetworkVariable<bool> ActHeld = new NetworkVariable<bool>(false, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Owner);
     public NetworkVariable<int> ActCount = new NetworkVariable<int>(0, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Owner);
+    public NetworkVariable<bool> InDuct = new NetworkVariable<bool>(false, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Owner);
     // ホストが書く
     public NetworkVariable<int> Station = new NetworkVariable<int>(-1);
     public NetworkVariable<int> Slot = new NetworkVariable<int>(0);
@@ -33,6 +34,8 @@ public class CrewPlayer : NetworkBehaviour
     public int NearStation { get; private set; } = -1;
     /// <summary>本人の近くにある整備タスク（なければ -1）。</summary>
     public int NearTask { get; private set; } = -1;
+    /// <summary>本人の近くにあるダクト（なければ -1）。</summary>
+    public int NearDuct { get; private set; } = -1;
     public Color Color => Colors[Mathf.Clamp(Slot.Value, 0, Colors.Length - 1)];
     public string Label => "P" + (Slot.Value + 1);
 
@@ -42,6 +45,8 @@ public class CrewPlayer : NetworkBehaviour
     bool m_FacingRight = true;
     int m_Ladder = -1;   // 登っているはしご（本人だけが使う）
     float m_FallSpeed;
+    float m_DuctT;       // ダクトの中を通っている残り時間
+    int m_DuctTo = -1;   // 出口のダクト
 
     // 絵の足元が、128px の絵の下端から 8px 上にある。立ち位置に足元が来るよう上にずらす
     const float SpriteLift = 1f - 8f / Art.PixelsPerUnit;
@@ -117,7 +122,11 @@ public class CrewPlayer : NetworkBehaviour
         m_Walk = walking ? m_Walk + Time.deltaTime * 14f : 0f;
 
         transform.position = InteriorMap.ToWorld(DisplayPos);
-        if (m_Avatar)
+        // ダクトの中にいるあいだは姿を消す
+        bool hidden = InDuct.Value;
+        if (m_Avatar && m_Avatar.gameObject.activeSelf == hidden) m_Avatar.gameObject.SetActive(!hidden);
+        if (m_Shadow && hidden) m_Shadow.enabled = false;
+        if (m_Avatar && !hidden)
         {
             int frame = walking ? 1 + (int)(m_Walk / Mathf.PI) % 2 : 0;
             m_Body.sprite = Art.Get("pilot_body_" + frame);
@@ -215,12 +224,27 @@ public class CrewPlayer : NetworkBehaviour
         }
         if (TaskUI.ClosedFrame == Time.frameCount) use = actPressed = false;
 
+        // ダクトの中を移動中（入力は受け付けない）。時間が来たら出口から出る
+        if (m_DuctT > 0f)
+        {
+            m_DuctT -= Time.deltaTime;
+            if (m_DuctT <= 0f && m_DuctTo >= 0)
+            {
+                Pos.Value = Ducts.All[m_DuctTo].Pos;
+                m_DuctTo = -1;
+                InDuct.Value = false;
+            }
+            if (ActHeld.Value) ActHeld.Value = false;
+            return;
+        }
+
         if (st < 0)
         {
             Pos.Value = MoveSideView(Pos.Value, mv, Time.deltaTime);
             if (Stick.Value != Vector2.zero) Stick.Value = Vector2.zero;
             NearStation = InteriorMap.NearestStation(Pos.Value, UseRange);
             NearTask = NearStation < 0 ? Tasks.Nearest(Pos.Value, UseRange) : -1;
+            NearDuct = NearStation < 0 && NearTask < 0 && m_Ladder < 0 ? Ducts.Nearest(Pos.Value, Ducts.UseRange) : -1;
             if (robot != null && NearStation >= 0 && robot.FireHp.Count == Stations.Count)
             {
                 bool onFire = robot.FireHp[NearStation] > 0;
@@ -230,6 +254,15 @@ public class CrewPlayer : NetworkBehaviour
             else if (robot != null && NearTask >= 0 && playing && !robot.TaskOk(NearTask) && (use || actPressed))
             {
                 TaskUI.Instance.Open(NearTask);
+            }
+            else if (NearDuct >= 0 && use)
+            {
+                // ダクトに入る。行き先はつながっている先に決まっている
+                m_DuctTo = Ducts.All[NearDuct].Link;
+                m_DuctT = Ducts.TravelTime;
+                m_FallSpeed = 0f;
+                InDuct.Value = true;
+                Pos.Value = Ducts.All[NearDuct].Pos;
             }
         }
         else
@@ -241,6 +274,7 @@ public class CrewPlayer : NetworkBehaviour
             if (Stick.Value != mv) Stick.Value = mv;
             NearStation = st;
             NearTask = -1;
+            NearDuct = -1;
             if (use && robot != null) robot.LeaveStationRpc();
         }
 
