@@ -117,8 +117,8 @@ public class GameBootstrap : MonoBehaviour
         Vector3 pos, look;
         if (robot != null)
         {
-            pos = robot.Root.TransformPoint(new Vector3(0f, 24f, -32f));
-            look = robot.Root.TransformPoint(new Vector3(0f, 9f, 14f));
+            pos = robot.Root.TransformPoint(new Vector3(0f, 26f, -34f));
+            look = robot.Root.TransformPoint(new Vector3(0f, 11f, 14f));
         }
         else
         {

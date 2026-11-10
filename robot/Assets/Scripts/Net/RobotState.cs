@@ -347,15 +347,18 @@ public class RobotState : NetworkBehaviour
         float yaw = Yaw.Value + aimH;
         if (!TaskOk(Tasks.Scope)) yaw += Random.Range(-0.3f, 0.3f); // 照準がずれている
         // 頭（胴体の前寄り）から砲身の先までの位置。RobotVisual の頭の組み立てと合わせてある
-        var start = LocalToWorld(Mathf.Sin(aimH) * 4f, 1.8f + Mathf.Cos(aimH) * 4f);
+        // 頭の右側の砲身の先（RobotVisual の頭の組み立てと合わせてある）
+        float c = Mathf.Cos(aimH), sn = Mathf.Sin(aimH);
+        var start = LocalToWorld(1.05f * c + 1.2f * sn, 0.25f - 1.05f * sn + 1.2f * c);
         m_Bolts.Add(new Bolt { P = start, D = new Vector2(Mathf.Sin(yaw), Mathf.Cos(yaw)), Life = 1.4f });
-        BoltFxRpc(new Vector3(start.x, 14.8f, start.y), yaw);
+        BoltFxRpc(new Vector3(start.x, 18.0f, start.y), yaw);
     }
 
     void PunchHit(int side, float aim)
     {
-        const float reach = 10.2f;
-        var fist = LocalToWorld(side * 6.3f + Mathf.Sin(aim) * reach, 1.2f + Mathf.Cos(aim) * reach);
+        // 肩の関節（左右 3.75m）から、腕を前に伸ばしたときの拳の位置
+        const float reach = 8.4f;
+        var fist = LocalToWorld(side * 3.75f + Mathf.Sin(aim) * reach, Mathf.Cos(aim) * reach);
         bool any = false;
         for (int i = 0; i < MaxDrones; i++)
         {
@@ -364,7 +367,7 @@ public class RobotState : NetworkBehaviour
         }
         for (int h = 0; h < HiveHp.Count; h++)
             if (HiveAlive(h) && Vector2.Distance(ExteriorWorld.HivePos[h], fist) < ExteriorWorld.HiveRadius + 2f) { DamageHive(h, 5); any = true; }
-        if (any) BoomFxRpc(new Vector3(fist.x, 9f, fist.y), 0.8f, new Color(1f, 0.82f, 0.25f));
+        if (any) BoomFxRpc(new Vector3(fist.x, 15f, fist.y), 0.8f, new Color(1f, 0.82f, 0.25f));
     }
 
     void UpdateBolts(float dt)

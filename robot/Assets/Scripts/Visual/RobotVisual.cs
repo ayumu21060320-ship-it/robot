@@ -38,7 +38,6 @@ public class RobotVisual : MonoBehaviour
         public bool IsShot;
     }
 
-    const float DeckY = 10.5f;
 
     public void Init(RobotState s)
     {
@@ -61,63 +60,132 @@ public class RobotVisual : MonoBehaviour
 
     // ---------------------------------------------------------------- 組み立て
 
+    /// <summary>傾けた箱（面取りした装甲の角に使う）</summary>
+    static GameObject Plate(Transform parent, Vector3 pos, Vector3 size, Color c, Vector3 euler, bool glow = false, string name = null)
+    {
+        var g = Prims.Box(parent, pos, size, c, glow, name);
+        g.transform.localRotation = Quaternion.Euler(euler);
+        return g;
+    }
+
+    /// <summary>円柱。axis: 0 = 左右（x）、1 = 上下（y）、2 = 前後（z）</summary>
+    static GameObject Cyl(Transform parent, Vector3 pos, float radius, float length, Color c, int axis, bool glow = false, string name = null)
+    {
+        var g = Prims.Shape(PrimitiveType.Cylinder, parent, pos, new Vector3(radius * 2f, length * 0.5f, radius * 2f), c, glow, name);
+        g.transform.localRotation = axis == 0 ? Quaternion.Euler(0, 0, 90f) : axis == 2 ? Quaternion.Euler(90f, 0, 0) : Quaternion.identity;
+        return g;
+    }
+
+    /// <summary>
+    /// 左半分の断面図（tools/art/robot_layers.py）と同じ形・同じ配色の巨大ロボット（全高 約19m）。
+    /// 脚が長く、すねは太く、足は大きな台形。胸は広く角ばった赤、腕は胸の横の黄色い丸い関節から生え、
+    /// 前腕は太いブロックで外側に黄色い装甲板。頭は小さく、アンテナが2本。
+    /// 前 = +z、左 = -x（画面の左側に見える側）。
+    /// </summary>
     void Build()
     {
-        var steel = Prims.Hex("#7a868b");
-        var dark = Prims.Hex("#2a3236");
-        var amber = Prims.Hex("#ffb000");
-        var glow = Prims.Hex("#5fe8ff");
+        var white = Prims.Hex("#d9dee2");
+        var whiteHi = Prims.Hex("#eef1f3");
+        var red = Prims.Hex("#c8402f");
+        var redHi = Prims.Hex("#de5a48");
+        var blue = Prims.Hex("#3c6fb4");
+        var blueHi = Prims.Hex("#5486c8");
+        var yellow = Prims.Hex("#f2b630");
+        var dark = Prims.Hex("#3a4652");
+        var frame = Prims.Hex("#262d34");
+        var glow = Prims.Hex("#7ff4ff");
 
         Root = new GameObject("Robot").transform;
         m_Body = Prims.Pivot(Root, Vector3.zero, "Body");
         m_FxRoot = new GameObject("RobotFx").transform;
 
-        Prims.Box(m_Body, new Vector3(0, 8.4f, -0.3f), new Vector3(7.2f, 1.8f, 4.4f), dark, false, "腰");
+        // ---------------- 腰まわり
+        Prims.Box(m_Body, new Vector3(0, 11.1f, 0), new Vector3(3.6f, 1.8f, 2.4f), dark, false, "骨盤");
+        Prims.Box(m_Body, new Vector3(0, 10.3f, 1.05f), new Vector3(1.3f, 1.5f, 0.4f), dark, false, "股の装甲");
+        Prims.Box(m_Body, new Vector3(0, 10.6f, 1.27f), new Vector3(0.9f, 0.25f, 0.06f), yellow);
+        for (int k = -1; k <= 1; k += 2)
+            Plate(m_Body, new Vector3(k * 2.15f, 10.6f, 0f), new Vector3(0.45f, 2.6f, 2.3f), dark, new Vector3(0, 0, -k * 12f), false, "腰の装甲");
+        Prims.Box(m_Body, new Vector3(0, 12.55f, 0), new Vector3(2.6f, 1.6f, 2.0f), frame, false, "腰");
 
+        // ---------------- 脚（股関節 → もも → ひざ → すね → 足首 → 足）
         for (int k = 0; k < 2; k++)
         {
             float s = k == 0 ? -1f : 1f;
-            var hip = Prims.Pivot(m_Body, new Vector3(s * 3f, 8.4f, -0.3f), k == 0 ? "左脚" : "右脚");
-            Prims.Box(hip, new Vector3(0, -2.1f, 0), new Vector3(2.3f, 4.2f, 2.3f), steel);
-            Prims.Box(hip, new Vector3(s * 0.9f, -2.1f, 1.2f), new Vector3(1.2f, 2.6f, 0.3f), amber);
-            var knee = Prims.Pivot(hip, new Vector3(0, -4.2f, 0), "膝");
-            Prims.Box(knee, Vector3.zero, new Vector3(2.6f, 1.2f, 2.6f), dark);
-            Prims.Box(knee, new Vector3(0, -1.9f, 0), new Vector3(2f, 3.6f, 2f), steel);
-            var foot = Prims.Pivot(knee, new Vector3(0, -3.8f, 0), "足");
-            Prims.Box(foot, new Vector3(0, 0, 0.5f), new Vector3(2.8f, 0.8f, 4f), dark);
-            Prims.Box(foot, new Vector3(0, 0.2f, 2.4f), new Vector3(2.9f, 0.3f, 0.6f), amber);
+            var hip = Prims.Pivot(m_Body, new Vector3(s * 1.6f, 10.6f, 0f), k == 0 ? "左脚" : "右脚");
+            Cyl(hip, Vector3.zero, 0.8f, 1.1f, frame, 0, false, "股関節");
+            Prims.Box(hip, new Vector3(0, -1.6f, 0), new Vector3(1.5f, 2.9f, 1.6f), blue, false, "もも");
+            Prims.Box(hip, new Vector3(0, -1.4f, 0.82f), new Vector3(1.1f, 2.0f, 0.06f), blueHi);
+            var knee = Prims.Pivot(hip, new Vector3(0, -3.0f, 0), "ひざ");
+            Cyl(knee, Vector3.zero, 0.7f, 1.5f, frame, 0, false, "ひざの関節");
+            Plate(knee, new Vector3(0, -0.1f, 0.85f), new Vector3(2.0f, 1.3f, 0.6f), dark, new Vector3(-12f, 0, 0), false, "ひざ当て");
+            // すね：ひざの下が一番太く、足首に向かって細くなる
+            Prims.Box(knee, new Vector3(0, -1.5f, 0), new Vector3(2.5f, 2.8f, 2.6f), blue, false, "すね（上）");
+            Prims.Box(knee, new Vector3(0, -4.25f, -0.1f), new Vector3(2.0f, 3.1f, 2.2f), blue, false, "すね（下）");
+            for (int e = -1; e <= 1; e += 2)
+                Plate(knee, new Vector3(e * 1.05f, -2.7f, 0f), new Vector3(0.35f, 1.6f, 2.2f), blue, new Vector3(0, 0, e * 10f), false, "すねの面取り");
+            Prims.Box(knee, new Vector3(s * 1.27f, -1.5f, 0.3f), new Vector3(0.1f, 1.6f, 1.3f), frame, false, "吸気口");
+            Prims.Box(knee, new Vector3(0, -1.6f, 1.32f), new Vector3(1.8f, 2.2f, 0.06f), blueHi);
+            var foot = Prims.Pivot(knee, new Vector3(0, -5.9f, 0), "足");
+            Prims.Box(foot, new Vector3(0, -0.15f, 0), new Vector3(1.1f, 1.0f, 1.1f), frame, false, "足首");
+            Prims.Box(foot, new Vector3(0, -1.15f, 0.35f), new Vector3(2.5f, 1.0f, 3.6f), red, false, "足");
+            Plate(foot, new Vector3(0, -0.85f, 1.95f), new Vector3(2.4f, 0.45f, 1.3f), redHi, new Vector3(28f, 0, 0), false, "つま先");
+            Cyl(foot, new Vector3(0, -1.0f, -1.55f), 0.5f, 0.6f, frame, 2, false, "かかとの噴射口");
+            Prims.Box(foot, new Vector3(0, -0.62f, 0.4f), new Vector3(2.55f, 0.12f, 3.0f), yellow);
             m_Hip[k] = hip; m_Knee[k] = knee; m_Foot[k] = foot;
         }
 
-        // 胴体（中に操縦士たちがいる）
-        Prims.Box(m_Body, new Vector3(0, 9.4f, 0), new Vector3(10f, 2.2f, 9.2f), steel, false, "胴体");
-        Prims.Box(m_Body, new Vector3(0, 8.45f, 0), new Vector3(10.3f, 0.5f, 9.5f), amber);
-        Prims.Box(m_Body, new Vector3(0, DeckY + 1.6f, -0.4f), new Vector3(9.2f, 3.2f, 8.2f), steel, false, "胸");
-        Prims.Box(m_Body, new Vector3(0, DeckY + 1.9f, 3.75f), new Vector3(6f, 1.2f, 0.1f), Prims.Hex("#ffd23f"), true, "胸の灯り");
-        for (int i = -1; i <= 1; i += 2)
-            Prims.Shape(PrimitiveType.Cylinder, m_Body, new Vector3(i * 3.4f, DeckY + 3.8f, -3.9f), new Vector3(1f, 1.5f, 1f), dark, false, "排気筒");
+        // ---------------- 胸（広く角ばった赤）と背中
+        Prims.Box(m_Body, new Vector3(0, 14.9f, 0), new Vector3(6.0f, 3.2f, 3.0f), red, false, "胸");
+        for (int k = -1; k <= 1; k += 2)
+            Plate(m_Body, new Vector3(k * 2.3f, 13.55f, 0f), new Vector3(1.6f, 0.35f, 2.8f), red, new Vector3(0, 0, k * 34f), false, "胸の下の面取り");
+        Prims.Box(m_Body, new Vector3(0, 16.55f, -0.1f), new Vector3(7.2f, 0.5f, 3.1f), redHi, false, "胸の上の板");
+        Prims.Box(m_Body, new Vector3(0, 13.4f, 0.2f), new Vector3(2.4f, 1.2f, 2.4f), red, false, "みぞおち");
+        for (int k = -1; k <= 1; k += 2)
+        {
+            Prims.Box(m_Body, new Vector3(k * 1.6f, 14.6f, 1.52f), new Vector3(1.7f, 1.9f, 0.1f), frame, false, "吸気口");
+            for (int g = 0; g < 4; g++)
+                Prims.Box(m_Body, new Vector3(k * 1.6f, 14.0f + g * 0.4f, 1.58f), new Vector3(1.5f, 0.1f, 0.06f), dark);
+        }
+        Prims.Box(m_Body, new Vector3(0, 15.5f, 1.53f), new Vector3(1.0f, 0.5f, 0.08f), yellow, true, "胸の灯り");
+        Prims.Box(m_Body, new Vector3(0, 14.8f, -2.0f), new Vector3(4.2f, 3.0f, 1.4f), dark, false, "背中");
+        for (int k = -1; k <= 1; k += 2)
+            Cyl(m_Body, new Vector3(k * 1.3f, 15.6f, -2.4f), 0.45f, 2.6f, frame, 1, false, "排気筒");
 
-        // 頭
-        Prims.Shape(PrimitiveType.Cylinder, m_Body, new Vector3(0, DeckY + 3.4f, 1.6f), new Vector3(1.6f, 0.5f, 1.6f), dark);
-        m_Head = Prims.Pivot(m_Body, new Vector3(0, DeckY + 4.8f, 1.8f), "頭");
-        Prims.Box(m_Head, Vector3.zero, new Vector3(3.4f, 2.2f, 2.6f), steel);
-        Prims.Box(m_Head, new Vector3(0, 1.2f, 0), new Vector3(3.6f, 0.4f, 2.8f), amber);
-        Prims.Box(m_Head, new Vector3(0, 0.15f, 1.33f), new Vector3(2.8f, 0.55f, 0.12f), glow, true, "目");
-        var barrel = Prims.Shape(PrimitiveType.Cylinder, m_Head, new Vector3(0, -0.5f, 2.2f), new Vector3(0.7f, 1.3f, 0.7f), dark, false, "砲身");
-        barrel.transform.localRotation = Quaternion.Euler(90f, 0, 0);
-        m_Sight = Prims.Box(m_Head, new Vector3(0, -0.5f, 37f), new Vector3(0.12f, 0.12f, 70f), glow, true, "照準線");
+        // ---------------- 首と頭（小さめ・アンテナ2本）
+        Cyl(m_Body, new Vector3(0, 16.95f, 0.1f), 0.45f, 0.9f, frame, 1, false, "首");
+        m_Head = Prims.Pivot(m_Body, new Vector3(0, 17.4f, 0.25f), "頭");
+        Prims.Box(m_Head, new Vector3(0, 0.75f, 0), new Vector3(1.9f, 1.6f, 1.9f), white, false, "頭");
+        Plate(m_Head, new Vector3(0, 1.65f, -0.1f), new Vector3(1.7f, 0.4f, 1.7f), whiteHi, new Vector3(-8f, 0, 0), false, "頭のてっぺん");
+        Prims.Box(m_Head, new Vector3(0, 0.25f, 0.95f), new Vector3(1.1f, 0.6f, 0.2f), white, false, "口もと");
+        Prims.Box(m_Head, new Vector3(0, 0.95f, 0.97f), new Vector3(1.6f, 0.32f, 0.1f), glow, true, "目");
+        Prims.Box(m_Head, new Vector3(0, 1.95f, 0.5f), new Vector3(0.25f, 0.6f, 0.6f), red, false, "とさか");
+        for (int k = -1; k <= 1; k += 2)
+            Plate(m_Head, new Vector3(k * 0.65f, 2.35f, 0f), new Vector3(0.08f, 1.6f, 0.08f), whiteHi, new Vector3(0, 0, -k * 8f), false, "アンテナ");
+        Cyl(m_Head, new Vector3(1.05f, 0.6f, 0.6f), 0.18f, 1.0f, frame, 2, false, "頭部砲");
+        m_Sight = Prims.Box(m_Head, new Vector3(1.05f, 0.6f, 36f), new Vector3(0.12f, 0.12f, 70f), glow, true, "照準線");
 
-        // 肩と腕
+        // ---------------- 腕（黄色い丸い肩の関節 → 細い上腕 → ひじ → 太い前腕 → 指の分かれた手）
         for (int k = 0; k < 2; k++)
         {
             float s = k == 0 ? -1f : 1f;
-            Prims.Box(m_Body, new Vector3(s * 6.3f, DeckY + 1.2f, 1.2f), new Vector3(2.8f, 2.4f, 3.4f), amber, false, "肩");
-            var arm = Prims.Pivot(m_Body, new Vector3(s * 6.3f, DeckY + 0.7f, 1.2f), k == 0 ? "左腕" : "右腕");
-            Prims.Box(arm, new Vector3(0, -2.2f, 0), new Vector3(1.9f, 4f, 1.9f), steel);
-            Prims.Box(arm, new Vector3(0, -4.4f, 0), new Vector3(2.2f, 1f, 2.2f), dark);
-            Prims.Box(arm, new Vector3(0, -6.3f, 0), new Vector3(2.3f, 3.6f, 2.3f), steel);
-            Prims.Box(arm, new Vector3(0, -9.1f, 0), new Vector3(2.9f, 2.5f, 2.9f), dark, false, "拳");
-            Prims.Box(arm, new Vector3(0, -8.2f, 1.3f), new Vector3(3f, 0.5f, 0.4f), amber);
+            Cyl(m_Body, new Vector3(s * 3.75f, 15.4f, 0f), 1.05f, 1.3f, yellow, 0, false, "肩の関節");
+            var arm = Prims.Pivot(m_Body, new Vector3(s * 3.75f, 15.4f, 0f), k == 0 ? "左腕" : "右腕");
+            Prims.Box(arm, new Vector3(0, -1.9f, 0), new Vector3(1.25f, 2.9f, 1.3f), white, false, "上腕");
+            Cyl(arm, new Vector3(0, -3.35f, 0), 0.62f, 1.4f, frame, 0, false, "ひじ");
+            Prims.Box(arm, new Vector3(0, -4.9f, 0.05f), new Vector3(2.0f, 2.3f, 1.9f), white, false, "前腕");
+            Prims.Box(arm, new Vector3(0, -4.9f, 1.0f), new Vector3(1.5f, 1.6f, 0.06f), whiteHi);
+            Prims.Box(arm, new Vector3(s * 1.2f, -4.7f, 0.05f), new Vector3(0.3f, 3.1f, 2.3f), yellow, false, "前腕の装甲板");
+            Prims.Box(arm, new Vector3(0, -6.25f, 0.05f), new Vector3(0.9f, 0.5f, 0.9f), frame, false, "手首");
+            Prims.Box(arm, new Vector3(0, -7.0f, 0.15f), new Vector3(1.6f, 1.25f, 0.85f), white, false, "手のひら");
+            for (int f = 0; f < 4; f++)
+            {
+                float fx = -0.6f + f * 0.4f;
+                float len = f == 1 || f == 2 ? 1.0f : 0.85f;
+                Prims.Box(arm, new Vector3(fx, -7.85f, 0.2f), new Vector3(0.32f, 0.5f, 0.38f), white, false, "指");
+                Prims.Box(arm, new Vector3(fx, -8.1f, 0.2f), new Vector3(0.2f, 0.12f, 0.3f), frame);
+                Prims.Box(arm, new Vector3(fx, -8.15f - len * 0.4f, 0.22f), new Vector3(0.28f, len * 0.7f, 0.34f), white, false, "指先");
+            }
+            Plate(arm, new Vector3(-s * 0.95f, -7.15f, 0.35f), new Vector3(0.32f, 0.9f, 0.38f), white, new Vector3(0, 0, s * 25f), false, "親指");
             m_Arm[k] = arm;
         }
 
