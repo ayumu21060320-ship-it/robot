@@ -32,8 +32,8 @@ public static class Tasks
     public static readonly TaskDef[] All =
     {
         new TaskDef { Name = "冷却バルブ",     Room = "胸",     Kind = TaskKind.Valve, Pos = P(11.4f, 41.5f),   PanelOffset = new Vector2(0f, 1.05f),  Effect = "動力が早く減る" },
-        new TaskDef { Name = "左腕の配線",     Room = "左肩",   Kind = TaskKind.Wires, Pos = P(4.9f, 41.5f),    PanelOffset = new Vector2(0f, 1.05f),   Effect = "左腕のパンチが遅い" },
-        new TaskDef { Name = "右腕の配線",     Room = "右肩",   Kind = TaskKind.Wires, Pos = P(35.1f, 41.5f),   PanelOffset = new Vector2(0f, 1.05f),   Effect = "右腕のパンチが遅い" },
+        new TaskDef { Name = "左腕の配線",     Room = "左肩",   Kind = TaskKind.Wires, Pos = P(4.9f, 41.5f),    PanelOffset = new Vector2(0f, 1.05f),   Effect = "左腕が動かない" },
+        new TaskDef { Name = "右腕の配線",     Room = "右肩",   Kind = TaskKind.Wires, Pos = P(35.1f, 41.5f),   PanelOffset = new Vector2(0f, 1.05f),   Effect = "右腕が動かない" },
         new TaskDef { Name = "左脚の油圧",     Room = "左もも", Kind = TaskKind.Gauge, Pos = P(16.7f, 20.6f),   PanelOffset = new Vector2(0f, 1.05f),  Effect = "左脚が全力で動かない" },
         new TaskDef { Name = "右脚の油圧",     Room = "右もも", Kind = TaskKind.Gauge, Pos = P(23.3f, 20.6f),   PanelOffset = new Vector2(0f, 1.05f),   Effect = "右脚が全力で動かない" },
         new TaskDef { Name = "ヒューズ",       Room = "腰",     Kind = TaskKind.Fuse,  Pos = P(26f, 27.4f),   PanelOffset = new Vector2(0f, 1.05f),   Effect = "頭部砲が撃てない" },

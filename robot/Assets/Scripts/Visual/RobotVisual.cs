@@ -24,6 +24,7 @@ public class RobotVisual : MonoBehaviour
     readonly Transform[] m_Elbow = new Transform[2], m_Hand = new Transform[2], m_Thumb = new Transform[2];
     readonly Transform[,] m_Finger = new Transform[2, 4];
     float m_Recoil, m_HitReact, m_HitSide = 1f;
+    readonly float[] m_SparkT = new float[2];
 
     /// <summary>腕1本の姿勢（角度は度）</summary>
     struct ArmPose
@@ -321,6 +322,21 @@ public class RobotVisual : MonoBehaviour
             }
             else if (t < 1f) pose[i] = ArmPose.Lerp(strike, idle, Smooth((t - 0.56f) / 0.44f));
             else { m_PunchT[i] = -1f; pose[i] = idle; punching[i] = false; }
+        }
+        // 肩の配線が切れている腕は、力が抜けてだらりと垂れ下がり、肩から火花が散る
+        for (int i = 0; i < 2; i++)
+        {
+            if (s.TaskOk(i == 0 ? Tasks.WiresL : Tasks.WiresR)) continue;
+            float side = i == 0 ? -1f : 1f;
+            m_PunchT[i] = -1f;
+            punching[i] = false;
+            pose[i] = new ArmPose { Pitch = 6f + Mathf.Sin(Time.time * 1.7f + i) * 4f * (0.4f + walk), Roll = side * 1f, Elbow = -2f, Curl = 4f };
+            m_SparkT[i] -= dt;
+            if (m_SparkT[i] <= 0f)
+            {
+                m_SparkT[i] = Random.Range(0.25f, 0.9f);
+                Boom(m_Arm[i].position, 0.35f, new Color(1f, 0.92f, 0.5f));
+            }
         }
         // パンチしていない腕は、顔の前で構える（ガード）
         for (int i = 0; i < 2; i++)

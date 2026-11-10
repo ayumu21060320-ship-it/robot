@@ -522,7 +522,13 @@ public class GameBootstrap : MonoBehaviour
         if (rs == null) return;
         float s = m_Scale;
         float x = Screen.width * 0.5f + 14 * s, y = 12 * s, w = 280 * s;
-        DrawRect(new Rect(x - 8 * s, y - 6 * s, w + 16 * s, 118 * s), new Color(0.06f, 0.08f, 0.1f, 0.85f));
+        bool armL = rs.TaskOk(Tasks.WiresL), armR = rs.TaskOk(Tasks.WiresR);
+        DrawRect(new Rect(x - 8 * s, y - 6 * s, w + 16 * s, (armL && armR ? 118 : 140) * s), new Color(0.06f, 0.08f, 0.1f, 0.85f));
+        if (!armL || !armR)
+        {
+            string stopped = !armL && !armR ? "両腕" : !armL ? "左腕" : "右腕";
+            GUI.Label(new Rect(x, y + 108 * s, w, 24 * s), $"<color=#ff6a4a><b>⚠ {stopped}が停止中（肩の配線が切れている）</b></color>", m_Small);
+        }
         DrawBar(new Rect(x, y, w, 22 * s), rs.Hull.Value / RobotState.MaxHull, Prims.Hex("#ff6a4a"), $"装甲  {Mathf.CeilToInt(rs.Hull.Value)}");
         DrawBar(new Rect(x, y + 30 * s, w, 22 * s), rs.Power.Value / RobotState.MaxPower, Prims.Hex("#d9a920"), $"動力  {Mathf.CeilToInt(rs.Power.Value)}");
         int t = Mathf.FloorToInt(rs.Elapsed.Value);

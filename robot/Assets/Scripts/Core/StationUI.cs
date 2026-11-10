@@ -109,6 +109,12 @@ public class StationUI : MonoBehaviour
             }
             case StationType.Arm:
             {
+                // 肩の配線が切れているあいだは、腕が動かないので操作盤も効かない
+                if (!rs.TaskOk(st == Stations.LeftArm ? Tasks.WiresL : Tasks.WiresR))
+                {
+                    Stick = Vector2.zero; Held = false; m_Pull = 0f; m_DragPunch = false; m_AimTarget = float.NaN;
+                    break;
+                }
                 // 狙い：A/D か、ダイヤルをクリックした向きへ
                 float aim = st == Stations.LeftArm ? rs.AimL.Value : rs.AimR.Value;
                 if (Mathf.Abs(x) > 0.1f) { m_AimTarget = float.NaN; Stick = new Vector2(x, 0f); }
@@ -132,8 +138,7 @@ public class StationUI : MonoBehaviour
                     {
                         m_Presses++;
                         m_PunchFlash = 1f;
-                        bool wiresOk = rs.TaskOk(st == Stations.LeftArm ? Tasks.WiresL : Tasks.WiresR);
-                        m_PunchCd = wiresOk ? 2.2f : 4.5f;
+                        m_PunchCd = 2.2f;
                         m_Pull = 0f;
                     }
                     else m_Pull = Mathf.Max(0f, m_Pull - dt * 3f); // バネで戻る
@@ -361,10 +366,21 @@ public class StationUI : MonoBehaviour
         if (e.type == EventType.MouseDown && knob.Contains(e.mousePosition)) { m_DragPunch = true; e.Use(); }
         if (e.type == EventType.MouseUp) m_DragPunch = false;
 
-        bool wiresOk = rs.TaskOk(left ? Tasks.WiresL : Tasks.WiresR);
         string help = "Space（か S・レバーをドラッグ）で引いて、引ききったら離すとパンチ";
-        if (!wiresOk) help += "\n<color=#ff8a6a>配線が故障中：次のパンチまでが長い</color>";
         GUI.Label(new Rect(a.x, a.yMax - 44 * s, a.width, 44 * s), help, m_Small);
+
+        // 肩の配線が切れていると腕が動かない：操作盤全体を赤く覆って知らせる
+        if (!rs.TaskOk(left ? Tasks.WiresL : Tasks.WiresR))
+        {
+            float blink = 0.55f + Mathf.Abs(Mathf.Sin(Time.time * 3f)) * 0.25f;
+            UIDraw.Fill(a, new Color(0.35f, 0.04f, 0.02f, blink));
+            UIDraw.Frame(a, Prims.Hex("#ff6a4a"), 4 * s);
+            var big = new GUIStyle(m_Center) { fontSize = Mathf.RoundToInt(22 * s) };
+            big.normal.textColor = Color.white;
+            string side = left ? "左" : "右";
+            GUI.Label(new Rect(a.x, a.center.y - 50 * s, a.width, 40 * s), $"⚠ {side}腕が動かない", big);
+            GUI.Label(new Rect(a.x, a.center.y, a.width, 50 * s), $"{side}肩の配線が切れている。\n{side}肩（胸の上の段の{(left ? "左" : "右")}端）の装置を直そう", m_Center);
+        }
     }
 
     // ---------------- 頭部砲
