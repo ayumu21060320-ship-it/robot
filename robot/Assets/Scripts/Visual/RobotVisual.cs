@@ -19,8 +19,24 @@ public class RobotVisual : MonoBehaviour
         : (Vector3?)null;
 
     RobotState m_State;
-    Transform m_Body, m_Head;
+    Transform m_Body, m_Upper, m_Head;
     readonly Transform[] m_Hip = new Transform[2], m_Knee = new Transform[2], m_Foot = new Transform[2], m_Arm = new Transform[2];
+    readonly Transform[] m_Elbow = new Transform[2], m_Hand = new Transform[2], m_Thumb = new Transform[2];
+    readonly Transform[,] m_Finger = new Transform[2, 4];
+    float m_Recoil, m_HitReact, m_HitSide = 1f;
+
+    /// <summary>腕1本の姿勢（角度は度）</summary>
+    struct ArmPose
+    {
+        public float Pitch, Roll, Elbow, Curl, Twist, Lean, Drop;
+        public static ArmPose Lerp(ArmPose a, ArmPose b, float t) => new ArmPose
+        {
+            Pitch = Mathf.LerpUnclamped(a.Pitch, b.Pitch, t), Roll = Mathf.LerpUnclamped(a.Roll, b.Roll, t),
+            Elbow = Mathf.LerpUnclamped(a.Elbow, b.Elbow, t), Curl = Mathf.LerpUnclamped(a.Curl, b.Curl, t),
+            Twist = Mathf.LerpUnclamped(a.Twist, b.Twist, t), Lean = Mathf.LerpUnclamped(a.Lean, b.Lean, t),
+            Drop = Mathf.LerpUnclamped(a.Drop, b.Drop, t),
+        };
+    }
     GameObject m_Sight;
     readonly float[] m_Phase = new float[2];
     readonly float[] m_PunchT = { -1f, -1f };
@@ -77,6 +93,8 @@ public class RobotVisual : MonoBehaviour
     }
 
     // ---------------------------------------------------------------- 組み立て
+
+    static float Smooth(float t) { t = Mathf.Clamp01(t); return t * t * (3f - 2f * t); }
 
     /// <summary>傾けた箱（面取りした装甲の角に使う）</summary>
     static GameObject Plate(Transform parent, Vector3 pos, Vector3 size, Color c, Vector3 euler, bool glow = false, string name = null)
@@ -152,26 +170,28 @@ public class RobotVisual : MonoBehaviour
             m_Hip[k] = hip; m_Knee[k] = knee; m_Foot[k] = foot;
         }
 
-        // ---------------- 胸（広く角ばった赤）と背中
-        Prims.Box(m_Body, new Vector3(0, 14.9f, 0), new Vector3(6.0f, 3.2f, 3.0f), red, false, "胸");
+        // ---------------- 上半身（腰から上をまとめて、ひねったり前かがみになったりする）
+        m_Upper = Prims.Pivot(m_Body, new Vector3(0, 12f, 0), "上半身");
+        Prims.Box(m_Upper, new Vector3(0, 0.55f, 0), new Vector3(2.6f, 1.6f, 2.0f), frame, false, "腰");
+        Prims.Box(m_Upper, new Vector3(0, 2.9f, 0), new Vector3(6.0f, 3.2f, 3.0f), red, false, "胸");
         for (int k = -1; k <= 1; k += 2)
-            Plate(m_Body, new Vector3(k * 2.3f, 13.55f, 0f), new Vector3(1.6f, 0.35f, 2.8f), red, new Vector3(0, 0, k * 34f), false, "胸の下の面取り");
-        Prims.Box(m_Body, new Vector3(0, 16.55f, -0.1f), new Vector3(7.2f, 0.5f, 3.1f), redHi, false, "胸の上の板");
-        Prims.Box(m_Body, new Vector3(0, 13.4f, 0.2f), new Vector3(2.4f, 1.2f, 2.4f), red, false, "みぞおち");
+            Plate(m_Upper, new Vector3(k * 2.3f, 1.55f, 0f), new Vector3(1.6f, 0.35f, 2.8f), red, new Vector3(0, 0, k * 34f), false, "胸の下の面取り");
+        Prims.Box(m_Upper, new Vector3(0, 4.55f, -0.1f), new Vector3(7.2f, 0.5f, 3.1f), redHi, false, "胸の上の板");
+        Prims.Box(m_Upper, new Vector3(0, 1.4f, 0.2f), new Vector3(2.4f, 1.2f, 2.4f), red, false, "みぞおち");
         for (int k = -1; k <= 1; k += 2)
         {
-            Prims.Box(m_Body, new Vector3(k * 1.6f, 14.6f, 1.52f), new Vector3(1.7f, 1.9f, 0.1f), frame, false, "吸気口");
+            Prims.Box(m_Upper, new Vector3(k * 1.6f, 2.6f, 1.52f), new Vector3(1.7f, 1.9f, 0.1f), frame, false, "吸気口");
             for (int g = 0; g < 4; g++)
-                Prims.Box(m_Body, new Vector3(k * 1.6f, 14.0f + g * 0.4f, 1.58f), new Vector3(1.5f, 0.1f, 0.06f), dark);
+                Prims.Box(m_Upper, new Vector3(k * 1.6f, 2.0f + g * 0.4f, 1.58f), new Vector3(1.5f, 0.1f, 0.06f), dark);
         }
-        Prims.Box(m_Body, new Vector3(0, 15.5f, 1.53f), new Vector3(1.0f, 0.5f, 0.08f), yellow, true, "胸の灯り");
-        Prims.Box(m_Body, new Vector3(0, 14.8f, -2.0f), new Vector3(4.2f, 3.0f, 1.4f), dark, false, "背中");
+        Prims.Box(m_Upper, new Vector3(0, 3.5f, 1.53f), new Vector3(1.0f, 0.5f, 0.08f), yellow, true, "胸の灯り");
+        Prims.Box(m_Upper, new Vector3(0, 2.8f, -2.0f), new Vector3(4.2f, 3.0f, 1.4f), dark, false, "背中");
         for (int k = -1; k <= 1; k += 2)
-            Cyl(m_Body, new Vector3(k * 1.3f, 15.6f, -2.4f), 0.45f, 2.6f, frame, 1, false, "排気筒");
+            Cyl(m_Upper, new Vector3(k * 1.3f, 3.6f, -2.4f), 0.45f, 2.6f, frame, 1, false, "排気筒");
 
         // ---------------- 首と頭（小さめ・アンテナ2本）
-        Cyl(m_Body, new Vector3(0, 16.95f, 0.1f), 0.45f, 0.9f, frame, 1, false, "首");
-        m_Head = Prims.Pivot(m_Body, new Vector3(0, 17.4f, 0.25f), "頭");
+        Cyl(m_Upper, new Vector3(0, 4.95f, 0.1f), 0.45f, 0.9f, frame, 1, false, "首");
+        m_Head = Prims.Pivot(m_Upper, new Vector3(0, 5.4f, 0.25f), "頭");
         Prims.Box(m_Head, new Vector3(0, 0.75f, 0), new Vector3(1.9f, 1.6f, 1.9f), white, false, "頭");
         Plate(m_Head, new Vector3(0, 1.65f, -0.1f), new Vector3(1.7f, 0.4f, 1.7f), whiteHi, new Vector3(-8f, 0, 0), false, "頭のてっぺん");
         Prims.Box(m_Head, new Vector3(0, 0.25f, 0.95f), new Vector3(1.1f, 0.6f, 0.2f), white, false, "口もと");
@@ -182,29 +202,37 @@ public class RobotVisual : MonoBehaviour
         Cyl(m_Head, new Vector3(1.05f, 0.6f, 0.6f), 0.18f, 1.0f, frame, 2, false, "頭部砲");
         m_Sight = Prims.Box(m_Head, new Vector3(1.05f, 0.6f, 36f), new Vector3(0.12f, 0.12f, 70f), glow, true, "照準線");
 
-        // ---------------- 腕（黄色い丸い肩の関節 → 細い上腕 → ひじ → 太い前腕 → 指の分かれた手）
+        // ---------------- 腕：肩 → 上腕 → ひじ（曲がる）→ 前腕 → 手首 → 手（指が曲がって拳になる）
         for (int k = 0; k < 2; k++)
         {
             float s = k == 0 ? -1f : 1f;
-            Cyl(m_Body, new Vector3(s * 3.75f, 15.4f, 0f), 1.05f, 1.3f, yellow, 0, false, "肩の関節");
-            var arm = Prims.Pivot(m_Body, new Vector3(s * 3.75f, 15.4f, 0f), k == 0 ? "左腕" : "右腕");
+            Cyl(m_Upper, new Vector3(s * 3.75f, 3.4f, 0f), 1.05f, 1.3f, yellow, 0, false, "肩の関節");
+            var arm = Prims.Pivot(m_Upper, new Vector3(s * 3.75f, 3.4f, 0f), k == 0 ? "左腕" : "右腕");
+            arm.localRotation = Quaternion.identity;
             Prims.Box(arm, new Vector3(0, -1.9f, 0), new Vector3(1.25f, 2.9f, 1.3f), white, false, "上腕");
-            Cyl(arm, new Vector3(0, -3.35f, 0), 0.62f, 1.4f, frame, 0, false, "ひじ");
-            Prims.Box(arm, new Vector3(0, -4.9f, 0.05f), new Vector3(2.0f, 2.3f, 1.9f), white, false, "前腕");
-            Prims.Box(arm, new Vector3(0, -4.9f, 1.0f), new Vector3(1.5f, 1.6f, 0.06f), whiteHi);
-            Prims.Box(arm, new Vector3(s * 1.2f, -4.7f, 0.05f), new Vector3(0.3f, 3.1f, 2.3f), yellow, false, "前腕の装甲板");
-            Prims.Box(arm, new Vector3(0, -6.25f, 0.05f), new Vector3(0.9f, 0.5f, 0.9f), frame, false, "手首");
-            Prims.Box(arm, new Vector3(0, -7.0f, 0.15f), new Vector3(1.6f, 1.25f, 0.85f), white, false, "手のひら");
+
+            var elbow = Prims.Pivot(arm, new Vector3(0, -3.35f, 0), "ひじ");
+            Cyl(elbow, Vector3.zero, 0.62f, 1.4f, frame, 0, false, "ひじの関節");
+            Prims.Box(elbow, new Vector3(0, -1.55f, 0.05f), new Vector3(2.0f, 2.3f, 1.9f), white, false, "前腕");
+            Prims.Box(elbow, new Vector3(0, -1.55f, 1.0f), new Vector3(1.5f, 1.6f, 0.06f), whiteHi);
+            Prims.Box(elbow, new Vector3(s * 1.2f, -1.35f, 0.05f), new Vector3(0.3f, 3.1f, 2.3f), yellow, false, "前腕の装甲板");
+            Prims.Box(elbow, new Vector3(0, -2.9f, 0.05f), new Vector3(0.9f, 0.5f, 0.9f), frame, false, "手首");
+
+            var hand = Prims.Pivot(elbow, new Vector3(0, -3.2f, 0.1f), "手");
+            Prims.Box(hand, new Vector3(0, -0.45f, 0.05f), new Vector3(1.6f, 1.25f, 0.85f), white, false, "手のひら");
             for (int f = 0; f < 4; f++)
             {
                 float fx = -0.6f + f * 0.4f;
                 float len = f == 1 || f == 2 ? 1.0f : 0.85f;
-                Prims.Box(arm, new Vector3(fx, -7.85f, 0.2f), new Vector3(0.32f, 0.5f, 0.38f), white, false, "指");
-                Prims.Box(arm, new Vector3(fx, -8.1f, 0.2f), new Vector3(0.2f, 0.12f, 0.3f), frame);
-                Prims.Box(arm, new Vector3(fx, -8.15f - len * 0.4f, 0.22f), new Vector3(0.28f, len * 0.7f, 0.34f), white, false, "指先");
+                var finger = Prims.Pivot(hand, new Vector3(fx, -1.05f, 0.05f), "指");
+                Prims.Box(finger, new Vector3(0, -0.25f, 0.05f), new Vector3(0.32f, 0.5f, 0.38f), white, false, "指の根元");
+                Prims.Box(finger, new Vector3(0, -0.5f, 0.05f), new Vector3(0.2f, 0.12f, 0.3f), frame);
+                Prims.Box(finger, new Vector3(0, -0.55f - len * 0.4f, 0.07f), new Vector3(0.28f, len * 0.7f, 0.34f), white, false, "指先");
+                m_Finger[k, f] = finger;
             }
-            Plate(arm, new Vector3(-s * 0.95f, -7.15f, 0.35f), new Vector3(0.32f, 0.9f, 0.38f), white, new Vector3(0, 0, s * 25f), false, "親指");
-            m_Arm[k] = arm;
+            var thumb = Prims.Pivot(hand, new Vector3(-s * 0.8f, -0.3f, 0.3f), "親指");
+            Plate(thumb, new Vector3(-s * 0.15f, -0.35f, 0f), new Vector3(0.32f, 0.9f, 0.38f), white, new Vector3(0, 0, s * 25f), false, "親指");
+            m_Arm[k] = arm; m_Elbow[k] = elbow; m_Hand[k] = hand; m_Thumb[k] = thumb;
         }
     }
 
@@ -245,30 +273,96 @@ public class RobotVisual : MonoBehaviour
                 if (sign > 0) Shake = Mathf.Max(Shake, 0.55f); // 一歩ごとにズシンと揺れる
             }
         }
-        float bob = moving ? Mathf.Abs(Mathf.Sin((m_Phase[0] + m_Phase[1]) * 0.5f)) * 0.25f : 0f;
-        m_Body.localPosition = new Vector3(0, Mathf.Lerp(m_Body.localPosition.y, bob, k), 0);
+        float walk = Mathf.Clamp01(Mathf.Abs(s.MoveSpeed.Value) / 2.5f);
+        float stride = (m_Phase[0] + m_Phase[1]) * 0.5f;
+        float bob = moving ? Mathf.Abs(Mathf.Sin(stride)) * 0.25f : 0f;
+        float breathe = Mathf.Sin(Time.time * 1.3f);
 
-        // 腕（パンチの回数が増えたら振る）
+        // ---- 腕：パンチの回数が増えたら、振りかぶり → 突き出し → ため → 戻し
         int[] punches = { s.PunchL.Value, s.PunchR.Value };
         float[] aims = { s.AimL.Value, s.AimR.Value };
+        var pose = new ArmPose[2];
+        float twist = Mathf.Sin(m_Phase[0]) * 5f * walk;    // 歩くと上半身が脚と逆にひねれる
+        float lean = 3f * walk + breathe * 0.6f;
+        float drop = 0f;
+        bool[] punching = new bool[2];
         for (int i = 0; i < 2; i++)
         {
+            float side = i == 0 ? -1f : 1f;
             if (punches[i] != m_LastPunch[i]) { m_LastPunch[i] = punches[i]; m_PunchT[i] = 0f; }
-            float e = 0f;
-            if (m_PunchT[i] >= 0f)
+
+            // ふだん：腕は少し外へ開き、ひじを軽く曲げて、歩くと脚と逆に振る
+            var idle = new ArmPose
             {
-                m_PunchT[i] += dt / RobotState.PunchTime;   // 重い腕なのでゆっくり振る
-                float t = m_PunchT[i];
-                // 振りかぶり（少し後ろへ）→ 突き出し → ゆっくり戻す
-                e = t < 0.2f ? -0.25f * (t / 0.2f) : t < 0.43f ? Mathf.Lerp(-0.25f, 1f, 1f - Mathf.Pow(1f - (t - 0.2f) / 0.23f, 3f)) : 1f - (t - 0.43f) / 0.57f;
-                if (t >= 1f) m_PunchT[i] = -1f;
+                Pitch = -4f - Mathf.Sin(m_Phase[1 - i]) * 16f * walk + breathe,
+                Roll = side * 6f,
+                Elbow = -16f - 14f * walk - Mathf.Max(0f, Mathf.Sin(m_Phase[1 - i])) * 12f * walk,
+                Curl = 25f,
+            };
+            pose[i] = idle;
+            if (m_PunchT[i] < 0f) continue;
+
+            m_PunchT[i] += dt / RobotState.PunchTime;
+            float t = m_PunchT[i];
+            punching[i] = true;
+            // 振りかぶった形：腕を後ろへ引いてひじを大きく曲げ、拳を握り、上半身を反対へひねる
+            var wind = new ArmPose { Pitch = 34f, Roll = side * 22f, Elbow = -118f, Curl = 100f, Twist = side * 24f, Lean = -5f, Drop = 0.15f };
+            // 打ち抜いた形：腕を前にまっすぐ伸ばし、上半身を打つ側へひねって前のめり
+            var strike = new ArmPose { Pitch = -94f, Roll = side * 2f, Elbow = -2f, Curl = 105f, Twist = -side * 28f, Lean = 11f, Drop = 0.45f };
+            if (t < 0.3f) pose[i] = ArmPose.Lerp(idle, wind, Smooth(t / 0.3f));
+            else if (t < 0.43f) pose[i] = ArmPose.Lerp(wind, strike, 1f - Mathf.Pow(1f - (t - 0.3f) / 0.13f, 3f));
+            else if (t < 0.56f)
+            {
+                // 当たった瞬間：少し行き過ぎてから戻る（衝撃）
+                float e = (t - 0.43f) / 0.13f;
+                var over = strike; over.Pitch -= 6f; over.Lean += 3f;
+                pose[i] = ArmPose.Lerp(over, strike, e);
+                if (t - dt / RobotState.PunchTime < 0.43f) Shake = Mathf.Max(Shake, 0.6f);
             }
-            float idle = -Mathf.Sin(m_Phase[1 - i]) * 7f - 4f;
-            m_Arm[i].localRotation = Quaternion.Euler(Mathf.LerpUnclamped(idle, -86f, e), aims[i] * Mathf.Rad2Deg, 0);
+            else if (t < 1f) pose[i] = ArmPose.Lerp(strike, idle, Smooth((t - 0.56f) / 0.44f));
+            else { m_PunchT[i] = -1f; pose[i] = idle; punching[i] = false; }
+        }
+        // パンチしていない腕は、顔の前で構える（ガード）
+        for (int i = 0; i < 2; i++)
+        {
+            int o = 1 - i;
+            if (!punching[o] || punching[i]) continue;
+            float side = i == 0 ? -1f : 1f;
+            float g = Mathf.Clamp01(Mathf.Min(m_PunchT[o] / 0.2f, (1f - m_PunchT[o]) / 0.3f));
+            var guard = new ArmPose { Pitch = -48f, Roll = side * 10f, Elbow = -105f, Curl = 95f };
+            pose[i] = ArmPose.Lerp(pose[i], guard, Smooth(g));
+        }
+        for (int i = 0; i < 2; i++)
+        {
+            twist += pose[i].Twist; lean += pose[i].Lean; drop = Mathf.Max(drop, pose[i].Drop);
+            m_Arm[i].localRotation = Quaternion.Euler(pose[i].Pitch, aims[i] * Mathf.Rad2Deg, pose[i].Roll);
+            m_Elbow[i].localRotation = Quaternion.Euler(pose[i].Elbow, 0, 0);
+            m_Hand[i].localRotation = Quaternion.Euler(-pose[i].Curl * 0.15f, 0, 0);
+            for (int f = 0; f < 4; f++) m_Finger[i, f].localRotation = Quaternion.Euler(-pose[i].Curl * (0.9f + f * 0.03f), 0, 0);
+            float side = i == 0 ? -1f : 1f;
+            m_Thumb[i].localRotation = Quaternion.Euler(-pose[i].Curl * 0.4f, 0, side * pose[i].Curl * 0.35f);
         }
 
-        // 頭と照準線（頭部砲に誰か座っているときだけ表示）
-        m_Head.localRotation = Quaternion.Euler(0, s.AimHead.Value * Mathf.Rad2Deg, 0);
+        // ---- 攻撃を受けたとき：上半身がのけぞる。頭部砲を撃つと頭が反動で跳ねる
+        m_HitReact = Mathf.Max(0f, m_HitReact - dt * 2.2f);
+        m_Recoil = Mathf.Max(0f, m_Recoil - dt * 7f);
+        float h = m_HitReact * m_HitReact;
+        lean -= 12f * h;
+        float roll = 7f * h * m_HitSide + Mathf.Sin(stride) * 2f * walk;
+
+        // パンチの踏ん張り：体を沈めてひざを曲げる
+        for (int i = 0; i < 2; i++)
+            if (drop > 0.01f)
+            {
+                m_Knee[i].localRotation *= Quaternion.Euler(drop * 22f, 0, 0);
+                m_Hip[i].localRotation *= Quaternion.Euler(-drop * 12f, 0, 0);
+                m_Foot[i].localRotation *= Quaternion.Euler(-drop * 10f, 0, 0);
+            }
+        m_Body.localPosition = new Vector3(0, Mathf.Lerp(m_Body.localPosition.y, bob - drop * 0.6f, k), 0);
+        m_Upper.localRotation = Quaternion.Euler(Mathf.Clamp(lean, -20f, 25f), Mathf.Clamp(twist, -35f, 35f), roll);
+
+        // ---- 頭と照準線（頭部砲に誰か座っているときだけ表示）。上半身のひねりを少し打ち消して前を向く
+        m_Head.localRotation = Quaternion.Euler(-9f * m_Recoil - 6f * h + Mathf.Sin(stride * 2f) * 1.5f * walk, s.AimHead.Value * Mathf.Rad2Deg - twist * 0.6f, 0);
         m_Sight.SetActive(s.Occupant.Count > Stations.Head && s.Occupant[Stations.Head] != 0);
 
         UpdateBoss(dt);
@@ -569,6 +663,7 @@ public class RobotVisual : MonoBehaviour
 
     public void SpawnBolt(Vector3 from, float yaw)
     {
+        m_Recoil = 1f;
         var b = Prims.Box(m_FxRoot, from, new Vector3(0.6f, 0.6f, 5f), Prims.Hex("#8ff6ff"), true, "Bolt");
         b.transform.rotation = Quaternion.Euler(0, yaw * Mathf.Rad2Deg, 0);
         var dir = new Vector3(Mathf.Sin(yaw), -0.12f, Mathf.Cos(yaw));
@@ -597,6 +692,8 @@ public class RobotVisual : MonoBehaviour
 
     public void Hit()
     {
+        m_HitReact = 1f;
+        m_HitSide = Random.value < 0.5f ? -1f : 1f;
         Shake = Mathf.Max(Shake, 0.7f);
         HitFlash = 1f;
     }
