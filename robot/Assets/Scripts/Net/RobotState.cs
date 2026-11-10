@@ -25,7 +25,7 @@ public class RobotState : NetworkBehaviour
     const float ArmAimRate = 0.55f, HeadAimRate = 0.7f;
     public const float PunchTime = 1.4f; // パンチの腕振り全体の時間（見た目と合わせる）
     const float PunchHitDelay = 0.6f;    // 振りかぶってから当たるまで
-    const float PunchCooldown = 2.2f, PunchCooldownBroken = 4.5f;
+    const float PunchCooldown = 2.2f;
     const float PunchDamage = 12f;
 
     // ---- 巨大な敵（1体だけ）
@@ -277,12 +277,13 @@ public class RobotState : NetworkBehaviour
                 case StationType.Arm:
                 {
                     int k = i == Stations.LeftArm ? 0 : 1;
+                    // 肩の配線が切れていると、その腕はまったく動かない（狙いもパンチもできない）
+                    if (!TaskOk(k == 0 ? Tasks.WiresL : Tasks.WiresR)) break;
                     float aim = Mathf.Clamp((k == 0 ? aimL : aimR) + stick.x * ArmAimRate * dt, -0.8f, 0.8f);
                     if (k == 0) aimL = aim; else aimR = aim;
                     if (pressed && m_Cooldown[i] <= 0f && power >= 4f)
                     {
-                        // 配線が壊れていると、次のパンチまでが長い
-                        m_Cooldown[i] = TaskOk(k == 0 ? Tasks.WiresL : Tasks.WiresR) ? PunchCooldown : PunchCooldownBroken;
+                        m_Cooldown[i] = PunchCooldown;
                         power -= 4f;
                         m_PunchHitAt[k] = PunchHitDelay;
                         if (k == 0) PunchL.Value++; else PunchR.Value++;
@@ -364,6 +365,7 @@ public class RobotState : NetworkBehaviour
         for (int k = 0; k < 2; k++)
         {
             if (m_PunchHitAt[k] < 0f) continue;
+            if (!TaskOk(k == 0 ? Tasks.WiresL : Tasks.WiresR)) { m_PunchHitAt[k] = -1f; continue; } // 振っている途中で配線が切れたら止まる
             m_PunchHitAt[k] -= dt;
             if (m_PunchHitAt[k] <= 0f) { m_PunchHitAt[k] = -1f; PunchHit(k == 0 ? -1 : 1, k == 0 ? aimL : aimR); }
         }
@@ -445,7 +447,13 @@ public class RobotState : NetworkBehaviour
                     if (!m_BossHitDone && m_BossActT >= BossSwipeWindup)
                     {
                         m_BossHitDone = true;
-                        if (dist < BossReach) { RobotHit(14f); if (Random.value < 0.5f) StartFire(); }
+                        if (dist < BossReach)
+                        {
+                            RobotHit(14f);
+                            if (Random.value < 0.5f) StartFire();
+                            // 爪が肩に当たって、片方の腕の配線が切れることがある
+                            if (Random.value < 0.45f) BreakTask(Random.value < 0.5f ? Tasks.WiresL : Tasks.WiresR);
+                        }
                         var tip = bp + new Vector2(Mathf.Sin(BossYaw.Value), Mathf.Cos(BossYaw.Value)) * 22f;
                         BoomFxRpc(new Vector3(tip.x, 8f, tip.y), 2.2f, new Color(1f, 0.4f, 0.6f));
                     }
@@ -556,6 +564,11 @@ public class RobotState : NetworkBehaviour
             var p = GetPlayer((ulong)(occ - 1));
             if (p != null) Unseat(p); else Occupant[st] = 0;
         }
+    }
+
+    void BreakTask(int i)
+    {
+        if (i >= 0 && i < TaskBroken.Count) TaskBroken[i] = 1;
     }
 
     void BreakRandomTask()
