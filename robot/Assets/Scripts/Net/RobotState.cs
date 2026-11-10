@@ -256,6 +256,7 @@ public class RobotState : NetworkBehaviour
             int count = p.ActCount.Value;
             int last = m_LastAct.TryGetValue(id, out var l) ? l : count;
             bool pressed = count != last;
+            int presses = Mathf.Clamp(count - last, 0, 10);   // 動力炉はタイミングがよいと1回で3つ分届く
             m_LastAct[id] = count;
             bool held = p.ActHeld.Value;
 
@@ -302,7 +303,7 @@ public class RobotState : NetworkBehaviour
                 }
                 case StationType.Core:
                 {
-                    if (pressed) power += 4f;
+                    power += 3f * presses;
                     power += 2.5f * dt;
                     break;
                 }

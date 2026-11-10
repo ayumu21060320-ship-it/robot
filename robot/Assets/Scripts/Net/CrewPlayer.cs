@@ -271,6 +271,16 @@ public class CrewPlayer : NetworkBehaviour
             if (Pos.Value != sp) Pos.Value = sp;
             m_Ladder = -1;
             m_FallSpeed = 0f;
+            // 操作盤（StationUI）でレバーやダイヤルを動かした結果を、ホストへの入力にする
+            var panel = StationUI.Instance;
+            if (panel != null && panel.Active)
+            {
+                mv = panel.Stick;
+                actHeld = panel.Held;
+                int presses = panel.TakePresses();
+                actPressed = false;
+                if (presses > 0) ActCount.Value = ActCount.Value + presses;
+            }
             if (Stick.Value != mv) Stick.Value = mv;
             NearStation = st;
             NearTask = -1;

@@ -43,6 +43,7 @@ public class GameBootstrap : MonoBehaviour
         m_Interior = InteriorMap.Build(transform);
         SetupCameras();
         gameObject.AddComponent<TaskUI>();
+        gameObject.AddComponent<StationUI>();
         m_LanAddresses = FindLanAddresses();
 
         RenderSettings.fog = true;
@@ -589,15 +590,7 @@ public class GameBootstrap : MonoBehaviour
         {
             var def = Stations.All[st];
             where = $"{def.Name} を操縦中";
-            switch (def.Type)
-            {
-                case StationType.Leg:
-                    float lever = st == Stations.LeftLeg ? rs.LegL.Value : rs.LegR.Value;
-                    hint = $"W/S でレバー（{Mathf.RoundToInt(lever * 100)}%）　Space で止める\n両脚そろえると前進、差をつけると曲がる"; break;
-                case StationType.Arm: hint = "A/D で狙いを左右に振る　Space でパンチ"; break;
-                case StationType.Head: hint = "A/D で砲塔を回す　Space 長押しで連射"; break;
-                default: hint = "Space 連打で発電（座っているだけでも少し回復）"; break;
-            }
+            hint = "操作盤で操縦する";
             hint += "　E で降りる";
         }
         else if (me.NearStation >= 0)
