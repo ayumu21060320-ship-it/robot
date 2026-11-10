@@ -102,7 +102,10 @@ public class GameBootstrap : MonoBehaviour
         bool overview = Keyboard.current != null && Keyboard.current.tabKey.isPressed;
         var local = CrewPlayer.Local;
         Vector2 focus = overview || local == null ? InteriorMap.Center : local.DisplayPos;
-        float size = overview || local == null ? 23f * InteriorMap.Scale : 9f;
+        // 全体図はロボット全体が左半分に収まる大きさ
+        var all = InteriorMap.Bounds;
+        float fit = Mathf.Max(all.height * 0.5f, all.width * 0.5f / Mathf.Max(0.1f, m_InteriorCam.aspect)) + 1f;
+        float size = overview || local == null ? fit : 9f;
         m_IntSize = Mathf.Lerp(m_IntSize, size, 1f - Mathf.Exp(-8f * dt));
         m_InteriorCam.orthographicSize = m_IntSize;
         var want = InteriorMap.ToWorld(focus, 30f);
@@ -399,11 +402,27 @@ public class GameBootstrap : MonoBehaviour
         // 地図上の点（メートル）→ 画面上の位置。z が上向きなので y は反転する
         Vector2 ToMap(Vector2 p) => new Vector2(ox + (p.x - b.xMin) * k, oy + (b.yMax - p.y) * k);
 
+        // ロボットの外形（装甲）
+        foreach (var (rect, color) in InteriorMap.ArmorOnly)
+        {
+            var bmin = ToMap(new Vector2(rect.xMin, rect.yMax) * InteriorMap.Scale);
+            var bmax = ToMap(new Vector2(rect.xMax, rect.yMin) * InteriorMap.Scale);
+            DrawRect(Rect.MinMaxRect(bmin.x, bmin.y, bmax.x, bmax.y), new Color(color.r * 0.6f, color.g * 0.6f, color.b * 0.6f, 1f));
+        }
+        foreach (var a in InteriorMap.Areas)
+        {
+            var ar = InteriorMap.ArmorRect(a);
+            var amin = ToMap(new Vector2(ar.xMin, ar.yMax));
+            var amax = ToMap(new Vector2(ar.xMax, ar.yMin));
+            var ac = a.Armor * 0.6f;
+            ac.a = 1f;
+            DrawRect(Rect.MinMaxRect(amin.x, amin.y, amax.x, amax.y), ac);
+        }
         foreach (var a in InteriorMap.Areas)
         {
             var min = ToMap(new Vector2(a.Rect.xMin, a.Rect.yMax) * InteriorMap.Scale);
             var max = ToMap(new Vector2(a.Rect.xMax, a.Rect.yMin) * InteriorMap.Scale);
-            DrawRect(Rect.MinMaxRect(min.x, min.y, max.x, max.y), a.Floor * 0.75f);
+            DrawRect(Rect.MinMaxRect(min.x, min.y, max.x, max.y), new Color(a.Floor.r * 0.8f, a.Floor.g * 0.8f, a.Floor.b * 0.8f, 1f));
         }
 
         for (int i = 0; i < Stations.Count; i++)

@@ -23,11 +23,11 @@ public static class Stations
 
     public static readonly StationDef[] All =
     {
-        new StationDef { Name = "左脚", Type = StationType.Leg,  Side = -1, Pos = new Vector2(10.5f, -4.5f) * InteriorMap.Scale, ConsoleOffset = new Vector2(0, -1.5f), Color = Prims.Hex("#4fd2ff") },
-        new StationDef { Name = "右脚", Type = StationType.Leg,  Side =  1, Pos = new Vector2(29.5f, -4.5f) * InteriorMap.Scale, ConsoleOffset = new Vector2(0, -1.5f), Color = Prims.Hex("#4fd2ff") },
-        new StationDef { Name = "左腕", Type = StationType.Arm,  Side = -1, Pos = new Vector2(3f, 17f) * InteriorMap.Scale,      ConsoleOffset = new Vector2(-1.6f, 0), Color = Prims.Hex("#ff9a3c") },
-        new StationDef { Name = "右腕", Type = StationType.Arm,  Side =  1, Pos = new Vector2(37f, 17f) * InteriorMap.Scale,     ConsoleOffset = new Vector2(1.6f, 0),  Color = Prims.Hex("#ff9a3c") },
-        new StationDef { Name = "頭部砲", Type = StationType.Head, Side = 0, Pos = new Vector2(20f, 30f) * InteriorMap.Scale,     ConsoleOffset = new Vector2(0, 1.6f),  Color = Prims.Hex("#b8ff5a") },
-        new StationDef { Name = "動力炉", Type = StationType.Core, Side = 0, Pos = new Vector2(20f, 8.3f) * InteriorMap.Scale,    ConsoleOffset = new Vector2(0, -1.4f), Color = Prims.Hex("#ffd23f") },
+        new StationDef { Name = "左脚", Type = StationType.Leg,  Side = -1, Pos = new Vector2(15f, 1f) * InteriorMap.Scale, ConsoleOffset = new Vector2(0, -1.5f), Color = Prims.Hex("#4fd2ff") },
+        new StationDef { Name = "右脚", Type = StationType.Leg,  Side =  1, Pos = new Vector2(25f, 1f) * InteriorMap.Scale, ConsoleOffset = new Vector2(0, -1.5f), Color = Prims.Hex("#4fd2ff") },
+        new StationDef { Name = "左腕", Type = StationType.Arm,  Side = -1, Pos = new Vector2(6.5f, 19f) * InteriorMap.Scale,      ConsoleOffset = new Vector2(0, -1.5f), Color = Prims.Hex("#ff9a3c") },
+        new StationDef { Name = "右腕", Type = StationType.Arm,  Side =  1, Pos = new Vector2(33.5f, 19f) * InteriorMap.Scale,     ConsoleOffset = new Vector2(0, -1.5f),  Color = Prims.Hex("#ff9a3c") },
+        new StationDef { Name = "頭部砲", Type = StationType.Head, Side = 0, Pos = new Vector2(20f, 54.5f) * InteriorMap.Scale,     ConsoleOffset = new Vector2(0, 1.6f),  Color = Prims.Hex("#b8ff5a") },
+        new StationDef { Name = "動力炉", Type = StationType.Core, Side = 0, Pos = new Vector2(20f, 37.5f) * InteriorMap.Scale,    ConsoleOffset = new Vector2(0, -1.4f), Color = Prims.Hex("#ffd23f") },
     };
 }
