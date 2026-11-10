@@ -300,15 +300,14 @@ public class GameBootstrap : MonoBehaviour
         DrawRect(r, new Color(0.06f, 0.08f, 0.1f, 0.92f));
         GUILayout.BeginArea(new Rect(r.x + 24 * s, r.y + 20 * s, r.width - 48 * s, r.height - 40 * s));
         GUILayout.Label("タイタンクルー", m_Title);
-        GUILayout.Label("巨大ロボットの中を走り回り、脚・腕・頭部砲・動力炉の席に乗り込んで、みんなで1体のロボットを動かそう。3つの敵の巣を壊せば勝ち。", m_Label);
+        GUILayout.Label("巨大ロボットの中を走り回り、脚・腕・頭部砲・動力炉の席に乗り込んで、1体のロボットを動かそう。3つの敵の巣を壊せば勝ち。", m_Label);
         GUILayout.Space(12 * s);
 
 #if !HAS_NETCODE
-        // Netcode が入っていないときは、1台で遊ぶオフライン版になる
-        GUILayout.Label("<b>オフライン版</b>（1人で全部の席を操縦）", m_Label);
-        GUILayout.Label("通信用のパッケージ Netcode for GameObjects が入っていないため、オンライン協力は使えません。インターネットにつながる場所でプロジェクトを開くと自動で入り、オンライン版に切り替わります（そのあと「Robot → ゲームのシーンを作成」をもう一度押してください）。", m_Small);
-        GUILayout.Space(10 * s);
-        if (GUILayout.Button("1人で始める", m_Button, GUILayout.Width(240 * s), GUILayout.Height(44 * s))) StartHost();
+        // いまは1人用。オンライン協力は Netcode を入れると有効になる（HAS_NETCODE）
+        GUILayout.Label("1人で全部の席を受け持つ。脚のレバーは降りても残るので、歩かせたまま腕や頭部砲へ走ろう。", m_Small);
+        GUILayout.Space(16 * s);
+        if (GUILayout.Button("スタート", m_Button, GUILayout.Width(240 * s), GUILayout.Height(48 * s))) StartHost();
         GUILayout.Space(10 * s);
 #else
         GUILayout.Label("<b>ホストになる</b>（部屋を作る人）", m_Label);
@@ -336,7 +335,7 @@ public class GameBootstrap : MonoBehaviour
 #if HAS_NETCODE
         GUILayout.Label("操作：WASD / 矢印で移動　E で席に乗る・降りる　Space でアクション　Tab で内部の全体図\n同じPCで試すときはアドレス 127.0.0.1 のまま。ネット越しに遊ぶ招待コード方式（Relay）は次の段階で追加します。", m_Small);
 #else
-        GUILayout.Label("操作：WASD / 矢印で移動　E で席に乗る・降りる　Space でアクション　Tab で内部の全体図\n脚のレバーは席を降りても残るので、1人でも歩かせたまま腕や頭部砲に走れます。", m_Small);
+        GUILayout.Label("操作：WASD / 矢印で移動　E で席に乗る・降りる　Space でアクション　Tab で内部の全体図", m_Small);
 #endif
         GUILayout.EndArea();
     }
@@ -410,7 +409,12 @@ public class GameBootstrap : MonoBehaviour
             GUI.Label(new Rect(x, y + 86 * s, w, 24 * s), $"<color=#93a6ae>近い巣：{dir} {Mathf.RoundToInt(nd)}m</color>", m_Small);
         }
 
-        if (GUI.Button(new Rect(Screen.width - 110 * s, 10 * s, 96 * s, 30 * s), "切断", m_Button)) networkManager.Shutdown();
+#if HAS_NETCODE
+        const string leave = "切断";
+#else
+        const string leave = "タイトルへ";
+#endif
+        if (GUI.Button(new Rect(Screen.width - 130 * s, 10 * s, 116 * s, 30 * s), leave, m_Button)) networkManager.Shutdown();
     }
 
     void DrawPrompt()

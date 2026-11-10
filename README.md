@@ -1,6 +1,6 @@
 # タイタンクルー（robot）
 
-巨大ロボットの**中**にいる操縦士たちが、ロボット内部を走り回り、脚・腕・頭部砲・動力炉の操作盤に乗り込んで、1体のロボットを協力して動かすオンライン協力ゲーム。
+巨大ロボットの**中**にいる操縦士が、ロボット内部を走り回り、脚・腕・頭部砲・動力炉の操作盤に乗り込んで、1体のロボットを動かすゲーム。いまは1人用で、オンライン協力はあとで追加する。
 
 - 画面の左半分：ロボット内部を真上から見た地図。自分の操縦士を追いかける
 - 画面の右半分：外を歩く巨大ロボット（3D）
@@ -10,25 +10,20 @@ Unity プロジェクト本体は `robot/` フォルダにあります。
 ## 動かし方
 
 1. Unity Hub で `robot/` フォルダを開く（Unity 6000.4）
-   - 初回は Netcode for GameObjects（`com.unity.netcode.gameobjects` 2.9.2）が自動で入ります
 2. メニュー **Robot → ゲームのシーンを作成** を押す
    - `Assets/Game/Scenes/RobotGame.unity` ができて、開いた状態になります
-3. ▶ 再生して **ホストとして始める** を押す
+3. ▶ 再生して **スタート** を押す
 
-### Netcode が入らない場所では（オフライン版）
+## オンライン協力を追加するとき
 
-学校のネットワークなどで `packages.unity.com` につながらず Netcode が入らないときも、そのまま開けます。
-Netcode の代わりに `Assets/Scripts/Offline/` の代役が使われ、メニューに「1人で始める」が出るオフライン版（1人用）になります。
+通信の部分は Netcode for GameObjects と同じ書き方で作ってあり、いまは `Assets/Scripts/Offline/` の代役で1人用として動いています。
 
-- Package Manager に Netcode のエラーが出ますが、ゲームは動きます
-- インターネットにつながる場所で開くと Netcode が自動で入り、オンライン版に切り替わります。
-  そのあと **Robot → ゲームのシーンを作成** をもう一度押してください（シーンとプレハブを作り直すため）
+1. Package Manager で `com.unity.netcode.gameobjects`（2.9.2）を入れる
+   - 入ると `HAS_NETCODE` が定義され、代役は使われなくなり、メニューが「ホスト／参加」に変わる
+2. **Robot → ゲームのシーンを作成** をもう一度押す（シーンとプレハブを本物の Netcode 用に作り直す）
+3. 2人で試すときは、ビルドしたものとエディタを同時に起動し、片方で「ホストとして始める」、もう片方はアドレス `127.0.0.1` のまま「参加する」
 
-### 2人以上で試す
-
-- **同じPCで**：File → Build Profiles でビルドして起動し、片方で「ホストとして始める」、もう片方は アドレス `127.0.0.1` のまま「参加する」
-- **同じWi-Fi/LANで**：ホスト側のメニューに出る「このPCのアドレス」（例 `192.168.1.10`）を参加する人が入力
-- **インターネット越し**：招待コードで参加できる Relay 方式を次の段階で追加予定
+インターネット越しに招待コードで参加できる Relay 方式は、その次の段階で追加予定。
 
 ## 操作
 
@@ -62,7 +57,7 @@ Netcode の代わりに `Assets/Scripts/Offline/` の代役が使われ、メニ
 | `Assets/Scripts/Net/CrewPlayer.cs` | 操縦士1人ぶん（移動・入力・席の乗り降り） |
 | `Assets/Scripts/Visual/RobotVisual.cs` | 外のロボット・ドローン・爆発などの見た目 |
 | `Assets/Scripts/Editor/RobotGameSetup.cs` | 「Robot → ゲームのシーンを作成」メニュー |
-| `Assets/Scripts/Offline/` | Netcode が入っていないときだけ使うオフライン用の代役 |
+| `Assets/Scripts/Offline/` | Netcode が入っていないとき（いまの1人用）に使う通信の代役 |
 | `Assets/Scripts/Game.asmdef` | Netcode の有無で `HAS_NETCODE` を切り替える |
 
 見た目はまだキューブや円柱の仮組みです。モデルができたら `RobotVisual.Build` と `InteriorMap.Build` を差し替えます。
