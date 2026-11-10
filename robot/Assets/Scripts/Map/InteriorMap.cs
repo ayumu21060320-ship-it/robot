@@ -36,35 +36,33 @@ public static class InteriorMap
 
     public static readonly Catwalk[] Catwalks =
     {
-        C(16.2f, 23.8f, 50.6f),   // 頭
-        C(2.6f, 37.4f, 42f),      // 肩から胸の上の段
-        C(13.4f, 26.6f, 34.4f),   // 胸の下の段（動力炉）
-        C(13.4f, 26.6f, 22.4f),   // 腰
-        C(13.6f, 17.8f, 14.5f),   // 左もも（途中の足場）
-        C(22.2f, 26.4f, 14.5f),   // 右もも
-        C(3.9f, 9.0f, 8.6f),      // 左の手のひら
-        C(31.0f, 36.1f, 8.6f),    // 右の手のひら
-        C(13.4f, 18.0f, -3.6f),   // 左すね
-        C(22.0f, 26.6f, -3.6f),   // 右すね
-        C(10.4f, 18.4f, -10.6f),  // 左足
-        C(21.6f, 29.6f, -10.6f),  // 右足
+        C(16.8f, 23.2f, 49.5f),   // 頭
+        C(0.8f, 39.2f, 41.5f),    // 肩から胸の上の段
+        C(13.6f, 26.4f, 35.6f),   // 胸の下の段（動力炉）
+        C(12.8f, 27.2f, 27.4f),   // 腰
+        C(13.2f, 17.4f, 20.6f),   // 左もも（途中の足場）
+        C(22.6f, 26.8f, 20.6f),   // 右もも
+        C(3.4f, 8.8f, 10.3f),     // 左の手のひら
+        C(31.2f, 36.6f, 10.3f),   // 右の手のひら
+        C(12.2f, 18.6f, 4.6f),    // 左すね
+        C(21.4f, 27.8f, 4.6f),    // 右すね
+        C(9.0f, 18.6f, -10.8f),   // 左足
+        C(21.4f, 31.0f, -10.8f),  // 右足
     };
 
     public static readonly Ladder[] Ladders =
     {
-        L(20f, 22.4f, 50.6f),     // 腰 → 胸 → 首 → 頭（体の真ん中を通る）
-        L(6.5f, 8.6f, 42f),       // 左肩 → 上腕 → 前腕 → 手首 → 手のひら
-        L(33.5f, 8.6f, 42f),      // 右肩 → 右手のひら
-        L(15.6f, -3.6f, 22.4f),   // 腰 → 左もも → ひざ → 左すね
-        L(24.4f, -3.6f, 22.4f),   // 腰 → 右すね
-        L(16.6f, -10.6f, -3.6f),  // 左すね → 足首 → 左足
-        L(23.4f, -10.6f, -3.6f),  // 右すね → 右足
+        L(20f, 27.4f, 49.5f),     // 腰 → 腹 → 胸 → 首 → 頭（体の真ん中を通る）
+        L(6.2f, 10.3f, 41.5f),    // 左肩 → 上腕 → ひじ → 前腕 → 手首 → 手のひら
+        L(33.8f, 10.3f, 41.5f),   // 右肩 → 右手のひら
+        L(15.5f, -10.8f, 27.4f),  // 腰 → 左もも → ひざ → 左すね → 足首 → 左足
+        L(24.5f, -10.8f, 27.4f),  // 腰 → 右足
     };
 
-    public static readonly Vector2 Spawn = new Vector2(24f, 34.4f) * Scale;
+    public static readonly Vector2 Spawn = new Vector2(24f, 35.6f) * Scale;
 
     /// <summary>動力炉の本体の位置（足元、メートル）</summary>
-    public static readonly Vector2 ReactorPos = new Vector2(17.4f, 34.4f) * Scale;
+    public static readonly Vector2 ReactorPos = new Vector2(17.2f, 35.6f) * Scale;
 
     // ------------------------------------------------------------------ 体の絵（tools/art/robot_layers.py で描く）
 
@@ -84,13 +82,13 @@ public static class InteriorMap
     /// <summary>場所の名前（画面下の案内に出す）。設計マスのおおよその範囲</summary>
     static readonly (string name, Rect rect)[] Regions =
     {
-        ("頭", Rect.MinMaxRect(13f, 49f, 27f, 61f)), ("首", Rect.MinMaxRect(17f, 45.5f, 23f, 49f)),
-        ("左肩", Rect.MinMaxRect(0f, 39f, 11f, 48f)), ("右肩", Rect.MinMaxRect(29f, 39f, 40f, 48f)),
-        ("胸", Rect.MinMaxRect(9f, 32f, 31f, 47f)), ("腹", Rect.MinMaxRect(13f, 27f, 27f, 32f)), ("腰", Rect.MinMaxRect(11f, 19f, 29f, 27f)),
-        ("左腕", Rect.MinMaxRect(1f, 15f, 11f, 39f)), ("右腕", Rect.MinMaxRect(29f, 15f, 39f, 39f)),
-        ("左手", Rect.MinMaxRect(0f, 1f, 13f, 15f)), ("右手", Rect.MinMaxRect(27f, 1f, 40f, 15f)),
-        ("左もも", Rect.MinMaxRect(11f, 8f, 20f, 19f)), ("右もも", Rect.MinMaxRect(20f, 8f, 29f, 19f)),
-        ("左すね", Rect.MinMaxRect(11f, -6f, 20f, 8f)), ("右すね", Rect.MinMaxRect(20f, -6f, 29f, 8f)),
+        ("頭", Rect.MinMaxRect(15f, 49f, 25f, 57f)), ("首", Rect.MinMaxRect(17f, 46.5f, 23f, 49f)),
+        ("左肩", Rect.MinMaxRect(-2f, 37f, 10f, 49f)), ("右肩", Rect.MinMaxRect(30f, 37f, 42f, 49f)),
+        ("胸", Rect.MinMaxRect(9f, 35f, 31f, 46.5f)), ("腹", Rect.MinMaxRect(14f, 31f, 26f, 35f)), ("腰", Rect.MinMaxRect(11f, 23f, 29f, 31f)),
+        ("左腕", Rect.MinMaxRect(1f, 17f, 11f, 37f)), ("右腕", Rect.MinMaxRect(29f, 17f, 39f, 37f)),
+        ("左手", Rect.MinMaxRect(0f, 2f, 13f, 17f)), ("右手", Rect.MinMaxRect(27f, 2f, 40f, 17f)),
+        ("左もも", Rect.MinMaxRect(11f, 15f, 20f, 23f)), ("右もも", Rect.MinMaxRect(20f, 15f, 29f, 23f)),
+        ("左すね", Rect.MinMaxRect(10f, -6f, 20f, 15f)), ("右すね", Rect.MinMaxRect(20f, -6f, 30f, 15f)),
         ("左足", Rect.MinMaxRect(7f, -13f, 20f, -6f)), ("右足", Rect.MinMaxRect(20f, -13f, 33f, -6f)),
     };
 
@@ -231,10 +229,10 @@ public static class InteriorMap
         // 足場に置いた荷物や機械（設計マス：x, 足場の高さ, 大きさ）
         (string sprite, float x, float y, float scale)[] props =
         {
-            ("crate", 26.1f, 34.4f, 0.8f),
-            ("machine", 28.5f, 42f, 0.6f), ("tanks", 15.5f, 42f, 0.6f),
-            ("machine", 22f, 22.4f, 0.55f),
-            ("crate", 13.2f, -10.6f, 0.8f), ("crate", 14.2f, -10.6f, 0.8f), ("crate", 28.4f, -10.6f, 0.8f), ("tanks", 26.4f, -10.6f, 0.7f),
+            ("crate", 26.2f, 35.6f, 0.8f),
+            ("machine", 30f, 41.5f, 0.6f), ("tanks", 15.2f, 41.5f, 0.6f),
+            ("machine", 21.6f, 27.4f, 0.55f),
+            ("crate", 12.6f, -10.8f, 0.8f), ("crate", 13.6f, -10.8f, 0.8f), ("crate", 28.4f, -10.8f, 0.8f), ("tanks", 26.6f, -10.8f, 0.7f),
         };
         foreach (var (sprite, x, y, scale) in props)
         {
