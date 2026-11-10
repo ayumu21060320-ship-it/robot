@@ -13,7 +13,7 @@ public class CrewPlayer : NetworkBehaviour
     public static readonly List<CrewPlayer> All = new List<CrewPlayer>();
     public static readonly Color[] Colors = { Prims.Hex("#3fb6ff"), Prims.Hex("#ff5a8a"), Prims.Hex("#7dff6a"), Prims.Hex("#c08bff") };
 
-    const float Speed = 5f;
+    const float Speed = 6f;
     public const float Radius = 0.35f;
     public const float UseRange = 1.6f;
 

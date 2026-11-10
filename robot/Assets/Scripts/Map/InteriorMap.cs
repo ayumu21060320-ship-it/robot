@@ -18,9 +18,19 @@ using UnityEngine;
 public static class InteriorMap
 {
     public static readonly Vector3 Origin = new Vector3(2000f, 0f, 0f);
-    public static readonly Vector2 Spawn = new Vector2(20f, 17.5f);
-    public static readonly Vector2 Center = new Vector2(20f, 12.5f);
 
+    /// <summary>
+    /// 内部の広さの倍率。部屋の配置（Areas）は「設計マス」で書き、実際の大きさ（メートル）はこれを掛けたもの。
+    /// 巨大ロボットらしく広くしたいときはこの数字を上げる。
+    /// </summary>
+    public const float Scale = 1.6f;
+
+    public static readonly Vector2 Spawn = new Vector2(20f, 17.5f) * Scale;
+    public static readonly Vector2 Center = new Vector2(20f, 12.5f) * Scale;
+    /// <summary>内部全体の範囲（メートル）。ミニマップ用。</summary>
+    public static readonly Rect Bounds = new Rect(0f, -8f * Scale, 40f * Scale, 41f * Scale);
+
+    /// <summary>部屋や通路。座標は設計マス（実際の大きさは Scale 倍）。</summary>
     public struct Area
     {
         public string Name;
@@ -77,7 +87,7 @@ public static class InteriorMap
         return s_Grid[gx, gz];
     }
 
-    public static bool Walkable(Vector2 p) => Cell(Mathf.FloorToInt(p.x), Mathf.FloorToInt(p.y));
+    public static bool Walkable(Vector2 p) => Cell(Mathf.FloorToInt(p.x / Scale), Mathf.FloorToInt(p.y / Scale));
 
     public static bool CanStand(Vector2 p, float r) =>
         Walkable(p + new Vector2(r, r)) && Walkable(p + new Vector2(-r, r)) &&
@@ -111,6 +121,7 @@ public static class InteriorMap
 
     public static string AreaName(Vector2 p)
     {
+        p /= Scale;
         foreach (var a in Areas)
             if (p.x >= a.Rect.xMin && p.x < a.Rect.xMax && p.y >= a.Rect.yMin && p.y < a.Rect.yMax)
                 return a.Name;
@@ -139,18 +150,18 @@ public static class InteriorMap
         v.Root = root;
 
         // 外の暗い背景（ロボットの外殻）
-        Prims.Box(root, new Vector3(20f, -0.3f, 12f), new Vector3(70f, 0.2f, 70f), Prims.Hex("#0b0f12"));
+        Prims.Box(root, new Vector3(20f * Scale, -0.3f, 12f * Scale), new Vector3(70f * Scale, 0.2f, 70f * Scale), Prims.Hex("#0b0f12"));
 
         // 床
         foreach (var a in Areas)
         {
-            var c = a.Rect.center;
-            Prims.Box(root, new Vector3(c.x, -0.05f, c.y), new Vector3(a.Rect.width, 0.1f, a.Rect.height), a.Floor, false, a.Name);
+            var c = a.Rect.center * Scale;
+            Prims.Box(root, new Vector3(c.x, -0.05f, c.y), new Vector3(a.Rect.width * Scale, 0.1f, a.Rect.height * Scale), a.Floor, false, a.Name);
         }
         // 床に2mごとの鋲（広さの目安）
         for (int z = GZ0; z < GZ0 + GH; z += 2)
             for (int x = GX0; x < GX0 + GW; x += 2)
-                if (Cell(x, z)) Prims.Box(root, new Vector3(x + 0.5f, 0.005f, z + 0.5f), new Vector3(0.12f, 0.01f, 0.12f), Prims.Hex("#1c2226"));
+                if (Cell(x, z)) Prims.Box(root, new Vector3((x + 0.5f) * Scale, 0.005f, (z + 0.5f) * Scale), new Vector3(0.12f, 0.01f, 0.12f), Prims.Hex("#1c2226"));
 
         BuildWalls(root);
 
@@ -179,17 +190,17 @@ public static class InteriorMap
         }
 
         // 動力炉の本体
-        var reactor = Prims.Shape(PrimitiveType.Cylinder, root, new Vector3(20f, 0.8f, 10.6f), new Vector3(2.4f, 0.8f, 2.4f), Prims.Hex("#ffd23f"), true, "動力炉 本体");
+        var reactor = Prims.Shape(PrimitiveType.Cylinder, root, new Vector3(20f * Scale, 0.8f, 10.6f * Scale), new Vector3(2.4f, 0.8f, 2.4f), Prims.Hex("#ffd23f"), true, "動力炉 本体");
         v.Reactor = reactor.GetComponent<Renderer>();
-        Prims.Shape(PrimitiveType.Cylinder, root, new Vector3(20f, 1.65f, 10.6f), new Vector3(2.9f, 0.08f, 2.9f), Prims.Hex("#1d2428"));
+        Prims.Shape(PrimitiveType.Cylinder, root, new Vector3(20f * Scale, 1.65f, 10.6f * Scale), new Vector3(2.9f, 0.08f, 2.9f), Prims.Hex("#1d2428"));
 
         // 操縦室の窓（外が見える）
-        Prims.Box(root, new Vector3(20f, 1.0f, 32.85f), new Vector3(8f, 0.6f, 0.2f), Prims.Hex("#5fe8ff"), true, "窓");
+        Prims.Box(root, new Vector3(20f * Scale, 1.0f, 33f * Scale - 0.15f), new Vector3(8f * Scale, 0.6f, 0.2f), Prims.Hex("#5fe8ff"), true, "窓");
         // 左右の腕室・脚室の外壁に機械っぽいライン
-        Prims.Box(root, new Vector3(0.15f, 0.9f, 17f), new Vector3(0.2f, 0.3f, 7f), Prims.Hex("#ff9a3c"), true);
-        Prims.Box(root, new Vector3(39.85f, 0.9f, 17f), new Vector3(0.2f, 0.3f, 7f), Prims.Hex("#ff9a3c"), true);
-        Prims.Box(root, new Vector3(10.5f, 0.9f, -7.85f), new Vector3(6f, 0.3f, 0.2f), Prims.Hex("#4fd2ff"), true);
-        Prims.Box(root, new Vector3(29.5f, 0.9f, -7.85f), new Vector3(6f, 0.3f, 0.2f), Prims.Hex("#4fd2ff"), true);
+        Prims.Box(root, new Vector3(0.15f, 0.9f, 17f * Scale), new Vector3(0.2f, 0.3f, 7f * Scale), Prims.Hex("#ff9a3c"), true);
+        Prims.Box(root, new Vector3(40f * Scale - 0.15f, 0.9f, 17f * Scale), new Vector3(0.2f, 0.3f, 7f * Scale), Prims.Hex("#ff9a3c"), true);
+        Prims.Box(root, new Vector3(10.5f * Scale, 0.9f, -8f * Scale + 0.15f), new Vector3(6f * Scale, 0.3f, 0.2f), Prims.Hex("#4fd2ff"), true);
+        Prims.Box(root, new Vector3(29.5f * Scale, 0.9f, -8f * Scale + 0.15f), new Vector3(6f * Scale, 0.3f, 0.2f), Prims.Hex("#4fd2ff"), true);
 
         return v;
     }
@@ -209,7 +220,7 @@ public static class InteriorMap
                 if (edge && start == int.MinValue) start = x;
                 if (!edge && start != int.MinValue)
                 {
-                    MakeWall(root, new Vector3((start + x) * 0.5f, WallH * 0.5f, z), new Vector3(x - start + WallT, WallH, WallT), wall, top);
+                    MakeWall(root, new Vector3((start + x) * 0.5f * Scale, WallH * 0.5f, z * Scale), new Vector3((x - start) * Scale + WallT, WallH, WallT), wall, top);
                     start = int.MinValue;
                 }
             }
@@ -224,7 +235,7 @@ public static class InteriorMap
                 if (edge && start == int.MinValue) start = z;
                 if (!edge && start != int.MinValue)
                 {
-                    MakeWall(root, new Vector3(x, WallH * 0.5f, (start + z) * 0.5f), new Vector3(WallT, WallH, z - start + WallT), wall, top);
+                    MakeWall(root, new Vector3(x * Scale, WallH * 0.5f, (start + z) * 0.5f * Scale), new Vector3(WallT, WallH, (z - start) * Scale + WallT), wall, top);
                     start = int.MinValue;
                 }
             }
