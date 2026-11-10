@@ -535,17 +535,36 @@ public class GameBootstrap : MonoBehaviour
             GUI.Label(new Rect(x, y + 86 * s, w, 24 * s), $"<color=#93a6ae>敵：{dir} {Mathf.RoundToInt(to.magnitude)}m</color>", m_Small);
         }
 
-        // 巨大な敵の体力（画面の右半分の下）
+        // 巨大な敵の体力：右半分（外の画面）で、敵の頭のすぐ上に出す。画面の外にいるときは右半分の上の端に出す
         if (rs.BossAlive)
         {
-            float bw = Mathf.Min(Screen.width * 0.5f - 40 * s, 520 * s);
-            var br = new Rect(Screen.width * 0.75f - bw * 0.5f, Screen.height - 54 * s, bw, 20 * s);
-            DrawRect(new Rect(br.x - 6 * s, br.y - 26 * s, br.width + 12 * s, br.height + 34 * s), new Color(0.06f, 0.08f, 0.1f, 0.85f));
-            GUI.Label(new Rect(br.x, br.y - 24 * s, br.width, 22 * s), "<b><color=#ff6aa0>巨大な敵</color></b>", m_Label);
-            DrawBar(br, rs.BossHp.Value / RobotState.BossMaxHp, Prims.Hex("#ff3d7f"), $"{Mathf.CeilToInt(rs.BossHp.Value)}");
-            // 振りかぶっているときは警告
+            float bw = 240 * s, bh = 16 * s;
+            float halfL = Screen.width * 0.5f;
+            Vector2 center = new Vector2(Screen.width * 0.75f, 150 * s);
+            bool onScreen = false;
+            var over = RobotVisual.Instance != null ? RobotVisual.Instance.BossOverhead : null;
+            if (over.HasValue)
+            {
+                var sp = m_ExteriorCam.WorldToScreenPoint(over.Value);
+                if (sp.z > 0f && sp.x > halfL && sp.x < Screen.width && sp.y > 0f && sp.y < Screen.height)
+                {
+                    center = new Vector2(sp.x, Screen.height - sp.y);
+                    onScreen = true;
+                }
+            }
+            // はみ出さないように右半分の中へおさめる
+            center.x = Mathf.Clamp(center.x, halfL + bw * 0.5f + 8 * s, Screen.width - bw * 0.5f - 8 * s);
+            center.y = Mathf.Clamp(center.y, 140 * s, Screen.height - 40 * s);
+            var br = new Rect(center.x - bw * 0.5f, center.y - bh * 0.5f, bw, bh);
+            DrawRect(new Rect(br.x - 4 * s, br.y - 22 * s, br.width + 8 * s, br.height + 26 * s), new Color(0.06f, 0.08f, 0.1f, onScreen ? 0.7f : 0.85f));
+            GUI.Label(new Rect(br.x, br.y - 21 * s, br.width, 20 * s), onScreen ? "<b><color=#ff6aa0>巨大な敵</color></b>" : "<b><color=#ff6aa0>巨大な敵（画面の外）</color></b>", m_Small);
+            DrawBar(br, rs.BossHp.Value / RobotState.BossMaxHp, Prims.Hex("#ff3d7f"), $"{Mathf.CeilToInt(rs.BossHp.Value)} / {Mathf.CeilToInt(RobotState.BossMaxHp)}");
+            // 振りかぶっているときは、ゲージの上に警告
             if (rs.BossAction.Value == RobotState.BossSwipe)
-                GUI.Label(new Rect(br.x, br.y - 50 * s, br.width, 24 * s), "<color=#ff6a4a><b>⚠ 敵が腕を振りかぶっている！ 離れろ</b></color>", m_Label);
+            {
+                var warn = new GUIStyle(m_Label) { alignment = TextAnchor.MiddleCenter };
+                GUI.Label(new Rect(center.x - 200 * s, br.y - 50 * s, 400 * s, 24 * s), "<color=#ff6a4a><b>⚠ 腕を振りかぶっている！ 離れろ</b></color>", warn);
+            }
         }
 
 #if HAS_NETCODE
