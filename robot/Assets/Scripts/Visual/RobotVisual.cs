@@ -13,6 +13,11 @@ public class RobotVisual : MonoBehaviour
 
     public Transform Root { get; private set; }
 
+    /// <summary>巨大な敵の頭のすぐ上の位置（体力ゲージを出す場所）。敵がいなければ null</summary>
+    public Vector3? BossOverhead => m_Boss != null && m_Boss.gameObject.activeSelf && m_BossHead != null
+        ? m_BossHead.position + Vector3.up * 10f
+        : (Vector3?)null;
+
     RobotState m_State;
     Transform m_Body, m_Head;
     readonly Transform[] m_Hip = new Transform[2], m_Knee = new Transform[2], m_Foot = new Transform[2], m_Arm = new Transform[2];
