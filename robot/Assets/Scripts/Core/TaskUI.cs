@@ -275,6 +275,7 @@ public class TaskUI : MonoBehaviour
     void OnGUI()
     {
         if (!IsOpen) return;
+        UIDraw.ApplyFont();
         GUI.depth = -10;
         float s = Mathf.Max(0.7f, Screen.height / 900f);
         if (m_Title == null || !Mathf.Approximately(s, m_Scale))

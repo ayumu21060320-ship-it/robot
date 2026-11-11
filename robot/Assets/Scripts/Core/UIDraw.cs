@@ -3,6 +3,23 @@ using UnityEngine;
 /// <summary>IMGUI で操作盤やミニゲームを描くための小さな道具（四角・枠・線・円）。</summary>
 public static class UIDraw
 {
+    static Font s_Font;
+    static bool s_FontLoaded;
+
+    /// <summary>
+    /// 日本語フォント（Assets/Resources/Fonts/ipagp.ttf）を IMGUI に使わせる。
+    /// Web 版では OS のフォントが使えず日本語が表示されないので、各 OnGUI の最初で呼ぶ。
+    /// </summary>
+    public static void ApplyFont()
+    {
+        if (!s_FontLoaded)
+        {
+            s_FontLoaded = true;
+            s_Font = Resources.Load<Font>("Fonts/ipagp");
+        }
+        if (s_Font != null && GUI.skin.font != s_Font) GUI.skin.font = s_Font;
+    }
+
     public static void Fill(Rect r, Color c)
     {
         var old = GUI.color;

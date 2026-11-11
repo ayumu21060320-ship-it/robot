@@ -11,7 +11,10 @@ public class RobotState : NetworkBehaviour
 {
     public static RobotState Instance { get; private set; }
 
-    public const int Playing = 0, Won = 1, Lost = 2;
+    public const int Playing = 0, Won = 1, Lost = 2, Lobby = 3;   // Lobby = 試合開始前の待機室
+
+    /// <summary>ホストを始める前に決める：true なら待機室から始める（オンラインの部屋）。false ならすぐ試合（1人用）</summary>
+    public static bool UseLobby;
     public const float MaxHull = 100f, MaxPower = 100f;
 
     /// <summary>タイタン（味方の巨大ロボット）の大きさ。見た目（RobotVisual）と当たり判定の両方に掛ける</summary>
@@ -110,7 +113,11 @@ public class RobotState : NetworkBehaviour
     public override void OnNetworkSpawn()
     {
         Instance = this;
-        if (IsServer) ResetGame();
+        if (IsServer)
+        {
+            ResetGame();
+            if (UseLobby) GameState.Value = Lobby;
+        }
         m_Visual = gameObject.AddComponent<RobotVisual>();
         m_Visual.Init(this);
     }
@@ -189,10 +196,23 @@ public class RobotState : NetworkBehaviour
     [Rpc(SendTo.ClientsAndHost)]
     void BeamFxRpc(Vector3 from, float yaw, float length) { if (m_Visual) m_Visual.SpawnBeam(from, yaw, length); }
 
+    /// <summary>試合後：オンラインなら待機室へ戻る、1人用ならすぐもう一度</summary>
     [Rpc(SendTo.Server)]
-    public void RestartRpc()
+    public void RestartRpc(RpcParams rpcParams = default)
     {
-        if (GameState.Value != Playing) ResetGame();
+        if (rpcParams.Receive.SenderClientId != NetworkManager.ServerClientId) return;   // ホストだけ
+        if (GameState.Value == Playing || GameState.Value == Lobby) return;
+        ResetGame();
+        if (UseLobby) GameState.Value = Lobby;
+    }
+
+    /// <summary>待機室から試合を始める（ホストだけ）。全員はロボットの中心へ転送される（CrewPlayer が状態の変化を見て移動する）</summary>
+    [Rpc(SendTo.Server)]
+    public void StartMatchRpc(RpcParams rpcParams = default)
+    {
+        if (rpcParams.Receive.SenderClientId != NetworkManager.ServerClientId) return;
+        if (GameState.Value != Lobby) return;
+        ResetGame();
     }
 
     // ================================================================ 見た目の合図（全員へ）
