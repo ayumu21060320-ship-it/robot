@@ -361,7 +361,12 @@ public class GameBootstrap : MonoBehaviour
         bool old = GUI.enabled;
         GUI.enabled = !m_Busy;
 
-        if (OnlineRooms.Available)
+        if (OnlineRooms.Available && OnlineRooms.NoServerHere)
+        {
+            GUILayout.Label("<color=#93a6ae>このページ（GitHub Pages）では、いまは1人用だけ遊べます。みんなで遊ぶには Multiplayer Services を入れて書き出し直します（README の「オンラインの準備」）。</color>", m_Small);
+            GUILayout.Space(10 * s);
+        }
+        else if (OnlineRooms.Available)
         {
             GUILayout.Label($"<b>みんなで遊ぶ</b>（最大{MaxPlayers}人）", m_Label);
             if (!OnlineRooms.UrlFromPage)

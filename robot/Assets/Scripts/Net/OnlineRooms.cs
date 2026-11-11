@@ -40,6 +40,12 @@ public static class OnlineRooms
     const string UrlKey = "titan_server_url";
     public const string LocalUrl = "ws://localhost:8080/ws";
 
+    /// <summary>
+    /// GitHub Pages など、ファイルを置くだけの場所で開いているため、自分のサーバーにつなげないとき true。
+    /// （Relay が無い状態で Web 版を GitHub Pages に置いた場合。1人用だけ遊べる）
+    /// </summary>
+    public static bool NoServerHere => !UsesRelay && PageUrl().Contains("github.io");
+
     /// <summary>今いる部屋の部屋番号（部屋に入っていなければ空）</summary>
     public static string RoomCode { get; private set; } = "";
 
