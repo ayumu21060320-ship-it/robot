@@ -113,3 +113,7 @@ UIElementsSchema/
 .idea/
 .DS_Store
 Thumbs.db
+
+# サーバー（server/）
+server/node_modules/
+server/public/

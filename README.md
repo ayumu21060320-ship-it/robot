@@ -16,41 +16,55 @@ Unity プロジェクト本体は `robot/` フォルダにあります。
 
 ## オンラインで遊ぶ（部屋番号）
 
-1. だれか1人が **部屋を作る** を押す → 画面の下に6文字の **部屋番号**（例：`K7M2QX`）が出る
+1. だれか1人が **部屋を作る** を押す → 画面の下に4けたの **部屋番号**（例：`4821`）が出る
 2. ほかの人はタイトル画面で部屋番号を入れて **参加する**
 3. 試合が始まるまでは、みんな **待機室** にいる（歩いたり、はしごで中二階に登ったりできる）
 4. 部屋を作った人（ホスト）が **試合開始** を押すと、全員が **ロボットの中心（胸の下の段）へ転送** される
 5. 勝っても負けても、ホストが R を押すと待機室に戻る。途中から入った人はロボットの中に出る
 
-通信は Unity の **Relay**（中継サーバー）を使う。ホストのパソコンの設定（ポート開放など）はいらない。
-部屋を作った人が抜けると、その部屋はなくなる。
+通信は **自分で用意したサーバー**（`server/`）を通す。ゲームの計算は部屋を作った人のブラウザ（またはPC）がして、
+サーバーは部屋番号ごとにデータを中継するだけ。部屋を作った人が抜けると、その部屋はなくなる。
+Unity のアカウントや追加のパッケージ（Relay など）はいらない。
 
-### オンラインの準備（最初に1回だけ）
+### サーバー（server/）
 
-学校のネットワークでは Unity のパッケージが取れないことがあるので、**家など制限のない回線で**やる。
+Node.js（18 以上）で動く。1つのサーバーで **Web版のゲームを配る** のと **部屋番号の中継** の両方をする。
 
-1. Unity を開くと、`Packages/manifest.json` に入れた **Netcode for GameObjects（2.9.2）** が自動で入る
-2. **Window → Package Manager** → 左上の **＋** → **Install package by name...** に `com.unity.services.multiplayer` と入れて Install
-   - 入ると `HAS_NETCODE` と `HAS_RELAY` が定義され、`Assets/Scripts/Offline/` の代役は使われなくなる
-3. **Edit → Project Settings → Services** で、Unity アカウントでログインし、**Unity Cloud のプロジェクトにリンク**する（無ければ新しく作る）
-4. ブラウザで [Unity Cloud](https://cloud.unity.com/) を開き、そのプロジェクトの **Relay** を有効にする（小さい規模なら無料）
-5. メニュー **Robot → ゲームのシーンを作成** をもう一度押す（シーンとプレハブを本物の Netcode 用に作り直す。これをしないと NetworkManager が「Missing Script」になる）
-6. 試すときは、Web版かビルドしたものとエディタを同時に起動し、片方で「部屋を作る」、もう片方で部屋番号を入れて「参加する」
+    cd server
+    npm install
+    npm start          # http://localhost:8080 で起動（PORT 環境変数で変えられる）
+    npm test           # 部屋を作る・入る・中継・満員・抜ける の動作確認
 
-部屋の作成・参加のコードは `Assets/Scripts/Net/OnlineRooms.cs` にまとまっている。
+- Web版：`Robot → Web版をビルド` で `server/public` に書き出される。サーバーを起動してそのアドレスを開くと遊べて、
+  部屋番号の通信も同じサーバーに自動でつながる
+- エディタ・PC版：タイトル画面の **サーバー** の欄に URL を入れる（自分のPCなら `ws://localhost:8080/ws` のまま。
+  公開したサーバーなら `my-titan.onrender.com` のように入れれば `wss://…/ws` に直る）
+- 公開するとき：`server` フォルダをまるごと（`public` も含めて）Node.js が動くサーバーにアップロードして `npm start`。
+  WebSocket が使えるところならどこでもよい（Render・Railway・VPS・自分のPC など）。https で公開すると通信も自動で wss になる
+  - `server/public` と `server/node_modules` は `.gitignore` に入れてある。GitHub と連携して公開するサービスを使うときは、
+    `.gitignore` の `server/public/` の行を消して、ビルドしたゲームも push する
+- 通信のきまり（部屋を作る・入る・データの形）は `server/server.js` の先頭に書いてある
+
+### オンラインの準備（Unity 側）
+
+1. `Packages/manifest.json` の **Netcode for GameObjects** が入っていればよい（入ると `HAS_NETCODE` が定義され、`Assets/Scripts/Offline/` の代役は使われなくなる）
+   - 学校のネットワークでは Unity のパッケージが取れないことがあるので、最初の1回は家など制限のない回線で開く
+2. メニュー **Robot → ゲームのシーンを作成** をもう一度押す（シーンとプレハブを本物の Netcode 用に作り直す。これをしないと NetworkManager が「Missing Script」になる）
+3. `server` を起動して、エディタで「部屋を作る」、Web版かもう1つのエディタ（ビルド）で部屋番号を入れて「参加する」
+
+部屋の作成・参加は `Assets/Scripts/Net/OnlineRooms.cs`、通信の中身は `Assets/Scripts/Net/WebSocketTransport.cs`（Web版は `Assets/Plugins/WebGL/WebSocketBridge.jslib` でブラウザの WebSocket を使う）。
 
 ## Web版（ブラウザで遊ぶ）
 
 1. Unity Hub → **インストール** → このバージョンの歯車 → **モジュールを加える** → **Web Build Support** を入れる
-2. メニュー **Robot → Web版をビルド** を押す → `robot/Builds/Web` にできる
-3. `Builds/Web` の中身を zip にして、[itch.io](https://itch.io/) に「HTML」のゲームとしてアップロードする（公開範囲は「限定公開」にもできる）
-   - `index.html` をダブルクリックしただけでは動かない（Web サーバーが必要）
-4. できた URL を友だちに送れば、ブラウザだけで「部屋を作る」「参加する」ができる
+2. メニュー **Robot → Web版をビルド** を押す → `server/public` にできる
+3. `server` を起動して（上の「サーバー」）、そのアドレスをブラウザで開く
+   - `index.html` をダブルクリックしただけでは動かない（サーバーが必要）
 
 注意：
 
-- ブラウザは自分でホストを開けないので、Web版は **1人で遊ぶときも Relay の部屋を作る**（インターネットが必要）
 - ブラウザのタブを裏に回すとゲームが止まる。**部屋を作った人はタブを開いたまま**にしておく
+- 1人で遊ぶときはサーバーにつながない（通信なし）
 - Web版では OS の日本語フォントが使えないので、`Assets/Resources/Fonts/ipagp.ttf`（IPA Pゴシック、IPAフォントライセンス v1.0。ライセンス文は同じフォルダ）を同梱している
 
 ## 操作
@@ -161,7 +175,9 @@ Unity プロジェクト本体は `robot/` フォルダにあります。
 | `tools/art/robot_layers.py` | ロボット全体の形（角ばったメカの輪郭）と、その内側の機械を3枚の大きな絵として描く。足場とはしごが体の中に収まっているかも確かめる（numpy・scipy・Pillow が必要） |
 | `tools/art/lobby_room.py` | 出撃前の待機室の背景（壁・窓・座席・出撃ゲート）を1枚の絵として描く |
 | `Assets/Scripts/Map/InteriorMap.cs` | ロボット内部の部屋と通路、歩ける場所の判定、内部の見た目 |
-| `Assets/Scripts/Net/OnlineRooms.cs` | 部屋番号のオンライン（Relay で部屋を作る・部屋番号で入る） |
+| `Assets/Scripts/Net/OnlineRooms.cs` | 部屋番号のオンライン（サーバーに部屋を作る・部屋番号で入る・1人用） |
+| `Assets/Scripts/Net/WebSocketTransport.cs` | Netcode の通信を WebSocket でサーバーに流す（PC版は .NET、Web版は jslib） |
+| `server/server.js` | Web版を配り、部屋番号ごとに通信を中継するサーバー（Node.js） |
 | `Assets/Scripts/Editor/WebBuild.cs` | メニュー「Robot → Web版をビルド」 |
 | `Assets/Scripts/Map/ExteriorWorld.cs` | 外の世界（地面・ビル） |
 | `Assets/Scripts/Net/RobotState.cs` | ロボットの状態とゲームの判定（ホストが計算して全員に配る） |

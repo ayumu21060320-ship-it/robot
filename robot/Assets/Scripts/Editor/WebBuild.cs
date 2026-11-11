@@ -3,13 +3,13 @@ using UnityEditor;
 using UnityEngine;
 
 /// <summary>
-/// メニュー「Robot → Web版をビルド」。ブラウザで遊べる版（WebGL）を Builds/Web に書き出す。
-/// できたフォルダをまるごと itch.io などにアップロードすると、URL を開くだけで遊べる。
+/// メニュー「Robot → Web版をビルド」。ブラウザで遊べる版（WebGL）を、サーバーの server/public に書き出す。
+/// server フォルダをまるごとサーバーにアップロードして起動すると、その URL を開くだけで遊べて、部屋番号でマルチもできる。
 /// （Unity Hub で「Web Build Support」モジュールを入れておく必要がある）
 /// </summary>
 public static class WebBuild
 {
-    const string OutDir = "Builds/Web";
+    const string OutDir = "../server/public";   // Unity プロジェクト（robot/）から見た場所
 
     [MenuItem("Robot/Web版をビルド")]
     public static void Build()
@@ -28,9 +28,9 @@ public static class WebBuild
             return;
         }
 
-        // どこにアップロードしても動くように：gzip 圧縮＋ブラウザ側で展開できるようにする
+        // gzip で小さくする（server.js が Content-Encoding を付けて配るので、ブラウザがそのまま展開する）
         PlayerSettings.WebGL.compressionFormat = WebGLCompressionFormat.Gzip;
-        PlayerSettings.WebGL.decompressionFallback = true;
+        PlayerSettings.WebGL.decompressionFallback = false;
         PlayerSettings.runInBackground = true;          // ほかのウィンドウを触っていても止まらない
         PlayerSettings.WebGL.template = "APPLICATION:Default";
 
@@ -48,8 +48,9 @@ public static class WebBuild
         {
             EditorUtility.RevealInFinder(Path.GetFullPath(OutDir));
             EditorUtility.DisplayDialog("Web版をビルド",
-                $"できました：{OutDir}\n\nこのフォルダの中身を zip にして itch.io（HTML のゲーム）にアップロードすると、ブラウザで遊べます。\n" +
-                "※ そのまま index.html をダブルクリックしても動きません（Web サーバーが必要）。", "OK");
+                "できました：server/public\n\n" +
+                "・自分のPCで試す：server フォルダで npm install → npm start を実行して http://localhost:8080 を開く\n" +
+                "・みんなで遊ぶ：server フォルダをまるごとサーバーにアップロードして npm start で起動する（README 参照）", "OK");
         }
         else
         {
