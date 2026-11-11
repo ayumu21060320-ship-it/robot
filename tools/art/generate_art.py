@@ -119,6 +119,64 @@ def pilot(frame):
     return finish(body), finish(detail)
 
 
+def pilot_climb(frame):
+    """はしごを登る操縦士（背中側から見た姿）。frame 0/1 で左右の手足を交互に上げる。
+    128x128 で足元が下端から 8px（pilot と同じ）。"""
+    S = 128
+    body, detail = canvas(S, S), canvas(S, S)
+    b, d = ImageDraw.Draw(body), ImageDraw.Draw(detail)
+    WHITE, SHADE = (255, 255, 255, 255), (196, 196, 204, 255)
+    BOOT = (52, 58, 66, 255)
+    cx = 64
+    left_high = frame == 0          # frame 0：左手と右足が上、frame 1：右手と左足が上
+
+    def arm(side, high):
+        x0 = cx + side * 30 - 8
+        top = 6 if high else 50
+        bot = 66 if high else 86
+        rr(b, (x0, top, x0 + 16, bot), 8, fill=SHADE)
+        rr(d, (x0, top, x0 + 16, bot), 8, outline=INK)
+        ell(b, (x0 - 2, top - 6, x0 + 18, top + 12), fill=WHITE)      # 手（横木をつかむ）
+        ell(d, (x0 - 2, top - 6, x0 + 18, top + 12), outline=INK, width=3)
+
+    # 足：上げた足はひざを曲げて短く、もう片方はまっすぐ下へ
+    for side in (-1, 1):
+        high = (side == 1) == left_high
+        x0 = cx + side * 13 - 10
+        top, foot = (78, 104) if high else (82, 120)
+        rr(b, (x0, top, x0 + 20, foot - 6), 7, fill=SHADE)
+        rr(d, (x0, top, x0 + 20, foot - 6), 7, outline=INK)
+        rr(d, (x0 - 2, foot - 12, x0 + 22, foot), 5, fill=BOOT, outline=INK)
+
+    # 下げた腕は胴の後ろ
+    arm(-1 if not left_high else 1, False)
+
+    # 胴体（背中）
+    torso = (cx - 23, 52, cx + 23, 96)
+    rr(b, torso, 14, fill=WHITE)
+    rr(b, (cx - 23, 80, cx + 23, 96), 12, fill=SHADE)
+    rr(d, torso, 14, outline=INK)
+    rr(d, (cx - 22, 80, cx + 22, 86), 2, fill=(52, 58, 66, 255))
+    # 背中のボンベ（真ん中）
+    rr(d, (cx - 11, 56, cx + 11, 86), 7, fill=(150, 160, 170, 255), outline=INK)
+    rr(d, (cx - 6, 60, cx - 2, 80), 2, fill=(205, 212, 218, 255))
+
+    # ヘルメット（後ろ姿なのでバイザーは見えない）
+    head = (cx - 25, 12, cx + 25, 62)
+    ell(b, head, fill=WHITE)
+    ell(b, (cx - 23, 32, cx + 23, 62), fill=SHADE)
+    ell(b, (cx - 21, 14, cx + 17, 50), fill=WHITE)
+    ell(d, head, outline=INK)
+    for side in (-1, 1):   # 両耳のヘッドセット
+        ell(d, (cx + side * 25 - 7, 30, cx + side * 25 + 7, 46), fill=(52, 58, 66, 255), outline=INK, width=3)
+    line(d, [(cx + 4, 13), (cx + 9, 4)], width=4)
+    ell(d, (cx + 4, 0, cx + 14, 10), fill=(255, 92, 92, 255), outline=INK, width=3)
+
+    # 上げた腕は頭の横に、手前に描く
+    arm(-1 if left_high else 1, True)
+    return finish(body), finish(detail)
+
+
 # ------------------------------------------------------------------ 床・壁
 
 def floor_tile():
@@ -662,6 +720,10 @@ def build():
         b, dt = pilot(f)
         out[f"pilot_body_{f}"] = b
         out[f"pilot_detail_{f}"] = dt
+    for f in range(2):
+        b, dt = pilot_climb(f)
+        out[f"pilot_climb_body_{f}"] = b
+        out[f"pilot_climb_detail_{f}"] = dt
     out["floor"] = floor_tile()
     out["wall_face"] = wall_face()
     out["wall_cap"] = wall_cap()
