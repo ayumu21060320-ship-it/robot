@@ -215,7 +215,7 @@ public class RobotVisual : MonoBehaviour
         for (int k = -1; k <= 1; k += 2)
             Plate(m_Head, new Vector3(k * 0.65f, 2.35f, 0f), new Vector3(0.08f, 1.6f, 0.08f), whiteHi, new Vector3(0, 0, -k * 8f), false, "アンテナ");
         Cyl(m_Head, new Vector3(1.05f, 0.6f, 0.6f), 0.18f, 1.0f, frame, 2, false, "頭部砲");
-        m_Sight = Prims.Box(m_Head, new Vector3(1.05f, 0.6f, 36f), new Vector3(0.12f, 0.12f, 70f), glow, true, "照準線");
+        m_Sight = Prims.Box(m_Head, new Vector3(1.05f, 0.6f, 36f), new Vector3(0.3f, 0.3f, 70f), glow, true, "照準線");
 
         // ---------------- 腕：肩 → 上腕 → ひじ（曲がる）→ 前腕 → 手首 → 手（指が曲がって拳になる）
         for (int k = 0; k < 2; k++)
@@ -721,8 +721,11 @@ public class RobotVisual : MonoBehaviour
     public void SpawnBolt(Vector3 from, float yaw)
     {
         m_Recoil = 1f;
-        var b = Prims.Box(m_FxRoot, from, new Vector3(0.6f, 0.6f, 5f), Prims.Hex("#8ff6ff"), true, "Bolt");
+        // 太めの光の弾：外側の水色の光と、少し長くはみ出す白い芯
+        var b = Prims.Box(m_FxRoot, from, new Vector3(1.6f, 1.6f, 8f), Prims.Hex("#8ff6ff"), true, "Bolt");
         b.transform.rotation = Quaternion.Euler(0, yaw * Mathf.Rad2Deg, 0);
+        var core = Prims.Box(b.transform, Vector3.zero, Vector3.one, Color.white, true, "Bolt core");
+        core.transform.localScale = new Vector3(0.55f, 0.55f, 1.15f);
         var dir = new Vector3(Mathf.Sin(yaw), -0.12f, Mathf.Cos(yaw));
         m_Fx.Add(new Fx { T = b.transform, V = dir * 75f, Life = 1.4f });
     }

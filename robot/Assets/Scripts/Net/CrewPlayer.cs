@@ -45,6 +45,7 @@ public class CrewPlayer : NetworkBehaviour
     Transform m_Avatar;
     SpriteRenderer m_Body, m_Detail, m_Shadow;
     float m_Walk;
+    float m_Climb;   // はしごを登り降りした距離（登るアニメーションのコマ送りに使う）
     bool m_FacingRight = true;
     int m_Ladder = -1;   // 登っているはしご（本人だけが使う）
     float m_FallSpeed;
@@ -133,13 +134,28 @@ public class CrewPlayer : NetworkBehaviour
         if (m_Shadow && hidden) m_Shadow.enabled = false;
         if (m_Avatar && !hidden)
         {
-            int frame = walking ? 1 + (int)(m_Walk / Mathf.PI) % 2 : 0;
-            m_Body.sprite = Art.Get("pilot_body_" + frame);
-            m_Detail.sprite = Art.Get("pilot_detail_" + frame);
-            m_Body.flipX = m_Detail.flipX = !m_FacingRight;
+            bool onFloor = InteriorMap.OnFloor(DisplayPos.x, DisplayPos.y, 0.05f, out _);
+            // はしごの途中にいるときは、背中を見せて手足を交互に動かす（登っても降りても、動いた距離でコマが進む）
+            bool climbing = !onFloor && Station.Value < 0 && InteriorMap.OnLadder(DisplayPos);
+            if (climbing)
+            {
+                m_Climb += Mathf.Abs(moved.y);
+                int cf = (int)(m_Climb / 0.55f) % 2;
+                m_Body.sprite = Art.Get("pilot_climb_body_" + cf);
+                m_Detail.sprite = Art.Get("pilot_climb_detail_" + cf);
+                m_Body.flipX = m_Detail.flipX = false;
+            }
+            else
+            {
+                int frame = walking ? 1 + (int)(m_Walk / Mathf.PI) % 2 : 0;
+                m_Body.sprite = Art.Get("pilot_body_" + frame);
+                m_Detail.sprite = Art.Get("pilot_detail_" + frame);
+                m_Body.flipX = m_Detail.flipX = !m_FacingRight;
+            }
             // 落ちているあいだと、はしごの途中では影を消す
-            m_Shadow.enabled = InteriorMap.OnFloor(DisplayPos.x, DisplayPos.y, 0.05f, out _);
-            m_Avatar.localPosition = new Vector3(0f, 0f, m_Shadow.enabled ? Mathf.Abs(Mathf.Sin(m_Walk)) * 0.08f : 0f);
+            m_Shadow.enabled = onFloor;
+            float bounce = onFloor ? Mathf.Abs(Mathf.Sin(m_Walk)) * 0.08f : 0f;
+            m_Avatar.localPosition = new Vector3(0f, 0f, bounce);
         }
     }
 

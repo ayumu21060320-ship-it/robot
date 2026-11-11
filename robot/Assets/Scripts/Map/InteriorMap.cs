@@ -160,6 +160,14 @@ public static class InteriorMap
         return -1;
     }
 
+    /// <summary>はしごの途中（真上）にいるか。登っている絵に切り替えるのに使う</summary>
+    public static bool OnLadder(Vector2 p)
+    {
+        foreach (var l in Ladders)
+            if (Mathf.Abs(l.X - p.x) < 0.06f && p.y > l.Y0 + 0.02f && p.y < l.Y1 - 0.02f) return true;
+        return false;
+    }
+
     public static Vector3 ToWorld(Vector2 p, float y = 0f) => Origin + new Vector3(p.x, y, p.y);
 
     public static int NearestStation(Vector2 p, float maxDist)
