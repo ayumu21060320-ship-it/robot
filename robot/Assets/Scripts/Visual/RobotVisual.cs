@@ -25,6 +25,18 @@ public class RobotVisual : MonoBehaviour
     readonly Transform[,] m_Finger = new Transform[2, 4];
     float m_Recoil, m_HitReact, m_HitSide = 1f;
     readonly float[] m_SparkT = new float[2];
+    readonly float[] m_LegSparkT = new float[2];
+
+    // 必殺技：胸の灯りがためで強く光り、ビームを撃つ
+    Renderer m_ChestLight;
+    Color m_ChestBase;
+    int m_LastSpecialId;
+    float m_ChargeT = -1f;
+    readonly List<Beam> m_Beams = new List<Beam>();
+    class Beam { public Transform Core, Glow; public float Life, Max; }
+
+    // ビルが崩れるアニメーション（-1 = 立っている）
+    float[] m_BldFall;
 
     /// <summary>腕1本の姿勢（角度は度）</summary>
     struct ArmPose
@@ -185,7 +197,8 @@ public class RobotVisual : MonoBehaviour
             for (int g = 0; g < 4; g++)
                 Prims.Box(m_Upper, new Vector3(k * 1.6f, 2.0f + g * 0.4f, 1.58f), new Vector3(1.5f, 0.1f, 0.06f), dark);
         }
-        Prims.Box(m_Upper, new Vector3(0, 3.5f, 1.53f), new Vector3(1.0f, 0.5f, 0.08f), yellow, true, "胸の灯り");
+        m_ChestLight = Prims.Box(m_Upper, new Vector3(0, 3.5f, 1.53f), new Vector3(1.0f, 0.5f, 0.08f), yellow, true, "胸の灯り").GetComponent<Renderer>();
+        m_ChestBase = yellow;
         Prims.Box(m_Upper, new Vector3(0, 2.8f, -2.0f), new Vector3(4.2f, 3.0f, 1.4f), dark, false, "背中");
         for (int k = -1; k <= 1; k += 2)
             Cyl(m_Upper, new Vector3(k * 1.3f, 3.6f, -2.4f), 0.45f, 2.6f, frame, 1, false, "排気筒");
@@ -257,6 +270,21 @@ public class RobotVisual : MonoBehaviour
         bool moving = false;
         for (int i = 0; i < 2; i++)
         {
+            // 油圧が切れた脚は動かない：まっすぐ突っ張って小刻みに震え、ももから火花が散る
+            if (!s.LegWorks(i))
+            {
+                float jit = Mathf.Sin(Time.time * 23f + i * 2f) * 1.2f;
+                m_Hip[i].localRotation = Quaternion.Slerp(m_Hip[i].localRotation, Quaternion.Euler(jit, 0, 0), k);
+                m_Knee[i].localRotation = Quaternion.Slerp(m_Knee[i].localRotation, Quaternion.Euler(2f, 0, 0), k);
+                m_Foot[i].localRotation = Quaternion.Slerp(m_Foot[i].localRotation, Quaternion.identity, k);
+                m_LegSparkT[i] -= dt;
+                if (m_LegSparkT[i] <= 0f)
+                {
+                    m_LegSparkT[i] = Random.Range(0.25f, 0.9f);
+                    Boom(m_Hip[i].position + Vector3.down * 1.5f, 0.35f, new Color(1f, 0.92f, 0.5f));
+                }
+                continue;
+            }
             float legSpeed = s.MoveSpeed.Value + (i == 0 ? 1f : -1f) * s.TurnRate.Value * 4f;
             float lev = legSpeed / 3.4f;
             m_Phase[i] += legSpeed * dt * 0.42f;
@@ -381,6 +409,8 @@ public class RobotVisual : MonoBehaviour
         m_Head.localRotation = Quaternion.Euler(-9f * m_Recoil - 6f * h + Mathf.Sin(stride * 2f) * 1.5f * walk, s.AimHead.Value * Mathf.Rad2Deg - twist * 0.6f, 0);
         m_Sight.SetActive(s.Occupant.Count > Stations.Head && s.Occupant[Stations.Head] != 0);
 
+        UpdateSpecial(dt);
+        UpdateBuildings(dt);
         UpdateBoss(dt);
 
         UpdateFx(dt);
@@ -712,6 +742,133 @@ public class RobotVisual : MonoBehaviour
         m_HitSide = Random.value < 0.5f ? -1f : 1f;
         Shake = Mathf.Max(Shake, 0.7f);
         HitFlash = 1f;
+    }
+
+    // ---------------------------------------------------------------- 必殺技
+
+    /// <summary>胸から前へまっすぐ伸びる太いビーム。だんだん細くなって消える</summary>
+    public void SpawnBeam(Vector3 from, float yaw, float length)
+    {
+        if (m_ChestLight != null) from = m_ChestLight.transform.position;
+        var rot = Quaternion.Euler(0, yaw * Mathf.Rad2Deg, 0);
+        var dir = rot * Vector3.forward;
+        var mid = from + dir * (length * 0.5f);
+        var core = Prims.Box(m_FxRoot, mid, new Vector3(2.4f, 2.4f, length), Color.white, true, "必殺ビーム").transform;
+        var glow = Prims.Box(m_FxRoot, mid, new Vector3(6f, 6f, length), Prims.Hex("#ffd23f"), true, "必殺ビームの光").transform;
+        core.rotation = rot; glow.rotation = rot;
+        m_Beams.Add(new Beam { Core = core, Glow = glow, Life = 1.3f, Max = 1.3f });
+        // 胸の前と、ビームの通り道のあちこちで爆発
+        Boom(from + dir * 3f, 1.6f, Prims.Hex("#fff3b0"));
+        for (float d = 25f; d < length; d += 30f)
+            Boom(new Vector3(from.x + dir.x * d, 2f, from.z + dir.z * d), 1.2f, Prims.Hex("#ffb02e"));
+        Shake = Mathf.Max(Shake, 1.6f);
+        m_Recoil = 1f;
+        m_HitReact = Mathf.Max(m_HitReact, 0.5f);   // 反動で上半身がのけぞる
+    }
+
+    void UpdateSpecial(float dt)
+    {
+        var s = m_State;
+        if (s.SpecialId.Value != m_LastSpecialId)
+        {
+            m_LastSpecialId = s.SpecialId.Value;
+            if (s.SpecialCharging.Value) m_ChargeT = 0f;
+        }
+        if (m_ChargeT >= 0f)
+        {
+            m_ChargeT += dt;
+            float c = Mathf.Clamp01(m_ChargeT / RobotState.SpecialChargeTime);
+            float flick = 0.7f + 0.3f * Mathf.Sin(Time.time * (12f + c * 30f));
+            if (m_ChestLight != null)
+            {
+                Prims.SetColor(m_ChestLight, Color.Lerp(m_ChestBase, Color.white, c * flick));
+                m_ChestLight.transform.localScale = new Vector3(1.0f + c * 1.6f, 0.5f + c * 1.2f, 0.08f);
+            }
+            Shake = Mathf.Max(Shake, c * 0.35f);
+            if (Random.value < dt * (4f + c * 14f) && m_ChestLight != null)
+                Boom(m_ChestLight.transform.position + Random.insideUnitSphere * 2.5f, 0.25f, Prims.Hex("#fff3b0"));
+            if (!s.SpecialCharging.Value || m_ChargeT > RobotState.SpecialChargeTime + 1f)
+            {
+                m_ChargeT = -1f;
+                if (m_ChestLight != null)
+                {
+                    Prims.SetColor(m_ChestLight, m_ChestBase);
+                    m_ChestLight.transform.localScale = new Vector3(1.0f, 0.5f, 0.08f);
+                }
+            }
+        }
+        else if (m_ChestLight != null && s.Special.Value >= RobotState.SpecialMax)
+        {
+            // ゲージ満タン：胸の灯りがゆっくり点滅して知らせる
+            float p = 0.5f + 0.5f * Mathf.Sin(Time.time * 5f);
+            Prims.SetColor(m_ChestLight, Color.Lerp(m_ChestBase, Color.white, p * 0.6f));
+        }
+        else if (m_ChestLight != null) Prims.SetColor(m_ChestLight, m_ChestBase);
+
+        for (int i = m_Beams.Count - 1; i >= 0; i--)
+        {
+            var b = m_Beams[i];
+            b.Life -= dt;
+            float t = Mathf.Clamp01(b.Life / b.Max);
+            float w = t * t;
+            var cs = b.Core.localScale; b.Core.localScale = new Vector3(2.4f * w + 0.05f, 2.4f * w + 0.05f, cs.z);
+            var gs = b.Glow.localScale; b.Glow.localScale = new Vector3(6f * w * (1f + 0.1f * Mathf.Sin(Time.time * 40f)) + 0.05f, 6f * w + 0.05f, gs.z);
+            if (b.Life <= 0f)
+            {
+                Destroy(b.Core.gameObject); Destroy(b.Glow.gameObject);
+                m_Beams.RemoveAt(i);
+            }
+        }
+    }
+
+    // ---------------------------------------------------------------- ビルの崩壊
+
+    void UpdateBuildings(float dt)
+    {
+        var objs = ExteriorWorld.BuildingObjects;
+        var list = ExteriorWorld.Buildings;
+        int n = Mathf.Min(objs.Count, list.Count);
+        if (m_BldFall == null || m_BldFall.Length != n)
+        {
+            m_BldFall = new float[n];
+            for (int i = 0; i < n; i++) m_BldFall[i] = -1f;
+        }
+        for (int i = 0; i < n; i++)
+        {
+            var t = objs[i];
+            if (t == null) continue;
+            var b = list[i];
+            bool alive = m_State.BuildingAlive(i) || m_State.BuildingHp.Count <= i;
+            if (alive)
+            {
+                if (m_BldFall[i] >= 0f)
+                {
+                    // リセットで元どおりに建て直す
+                    m_BldFall[i] = -1f;
+                    t.gameObject.SetActive(true);
+                    t.SetPositionAndRotation(new Vector3(b.Pos.x, b.Size.y * 0.5f, b.Pos.y), Quaternion.Euler(0, b.RotY, 0));
+                }
+                continue;
+            }
+            if (m_BldFall[i] < 0f)
+            {
+                m_BldFall[i] = 0f;
+                Boom(new Vector3(b.Pos.x, b.Size.y * 0.6f, b.Pos.y), 1.4f, Prims.Hex("#9a8f86"));
+            }
+            if (m_BldFall[i] > 1.6f) { if (t.gameObject.activeSelf) t.gameObject.SetActive(false); continue; }
+            m_BldFall[i] += dt;
+            float f = Mathf.Clamp01(m_BldFall[i] / 1.6f);
+            float e = f * f;
+            // ロボットから遠ざかる向きへ傾きながら、地面に沈んでいく
+            var away = b.Pos - m_Pos;
+            float side = Vector2.Dot(away, new Vector2(Mathf.Cos(b.RotY * Mathf.Deg2Rad), -Mathf.Sin(b.RotY * Mathf.Deg2Rad))) >= 0f ? -1f : 1f;
+            float shiver = Mathf.Sin(m_BldFall[i] * 40f) * (1f - f) * 0.4f;
+            t.SetPositionAndRotation(
+                new Vector3(b.Pos.x + shiver, b.Size.y * 0.5f - b.Size.y * 0.95f * e, b.Pos.y),
+                Quaternion.Euler(0, b.RotY, 0) * Quaternion.Euler(0, 0, side * 18f * e));
+            if (Random.value < dt * 6f * (1f - f))
+                Boom(new Vector3(b.Pos.x + Random.Range(-b.Size.x, b.Size.x) * 0.5f, 1f, b.Pos.y + Random.Range(-b.Size.z, b.Size.z) * 0.5f), 0.7f, Prims.Hex("#8a7f76"));
+        }
     }
 
     /// <summary>被弾したときに画面のふちを赤くする強さ（HUDが読む）</summary>

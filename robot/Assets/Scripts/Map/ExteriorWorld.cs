@@ -21,6 +21,8 @@ public static class ExteriorWorld
 
     static List<Building> s_Buildings;
     public static List<Building> Buildings { get { Generate(); return s_Buildings; } }
+    /// <summary>ビルの見た目（Buildings と同じ順番）。崩れるアニメーションに使う</summary>
+    public static readonly List<Transform> BuildingObjects = new List<Transform>();
 
 
     static void Generate()
@@ -47,12 +49,10 @@ public static class ExteriorWorld
         }
     }
 
-    /// <summary>タイタンがこの位置に立てるか（ビル・巨大な敵・外周の壁）</summary>
+    /// <summary>タイタンがこの位置に立てるか（巨大な敵・外周の壁）。ビルは踏み倒せるので止まらない</summary>
     public static bool Blocked(Vector2 p, Vector2 bossPos, bool bossAlive)
     {
         if (Mathf.Abs(p.x) > Bounds || Mathf.Abs(p.y) > Bounds) return true;
-        foreach (var b in Buildings)
-            if (Vector2.Distance(b.Pos, p) < b.Radius + RobotRadius) return true;
         if (bossAlive && Vector2.Distance(bossPos, p) < RobotState.BossRadius + RobotRadius) return true;
         return false;
     }
@@ -94,9 +94,11 @@ public static class ExteriorWorld
         var colors = new[] { Prims.Hex("#6f6a60"), Prims.Hex("#5c6468"), Prims.Hex("#7b6f5c") };
         var window = Prims.Hex("#ffcf7a");
         int ci = 0;
+        BuildingObjects.Clear();
         foreach (var b in Buildings)
         {
             var g = Prims.Box(root, new Vector3(b.Pos.x, b.Size.y * 0.5f, b.Pos.y), b.Size, colors[ci++ % 3], false, "ビル");
+            BuildingObjects.Add(g.transform);
             g.transform.rotation = Quaternion.Euler(0, b.RotY, 0);
             // 窓の光
             for (float y = 3f; y < b.Size.y - 1f; y += 4f)

@@ -93,6 +93,12 @@ public class StationUI : MonoBehaviour
         {
             case StationType.Leg:
             {
+                // 油圧が切れているあいだは、脚が動かないので操作盤も効かない
+                if (!rs.LegWorks(st == Stations.LeftLeg ? 0 : 1))
+                {
+                    Stick = Vector2.zero; Held = false; m_LegTarget = float.NaN; m_DragLever = false;
+                    break;
+                }
                 float cur = st == Stations.LeftLeg ? rs.LegL.Value : rs.LegR.Value;
                 if (Mathf.Abs(y) > 0.1f) { m_LegTarget = float.NaN; Stick = new Vector2(0f, y); }
                 else if (!float.IsNaN(m_LegTarget))
@@ -158,6 +164,9 @@ public class StationUI : MonoBehaviour
                 }
                 else Stick = Vector2.zero;
                 Held = space || m_MouseFire;
+                // 必殺技：F キー（ゲームパッドは Y）
+                bool fire = (kb != null && kb.fKey.wasPressedThisFrame) || (gp != null && gp.buttonNorth.wasPressedThisFrame);
+                if (fire) TryFireSpecial(rs);
                 break;
             }
             case StationType.Core:
@@ -172,6 +181,12 @@ public class StationUI : MonoBehaviour
                 break;
             }
         }
+    }
+
+    void TryFireSpecial(RobotState rs)
+    {
+        if (rs.Special.Value < RobotState.SpecialMax || rs.SpecialCharging.Value) return;
+        rs.FireSpecialRpc();
     }
 
     float CoreNeedle() => 0.5f + Mathf.Sin(m_CoreT * 2.4f) * 0.48f;
@@ -242,7 +257,7 @@ public class StationUI : MonoBehaviour
         bool left = m_Station == Stations.LeftLeg;
         float cur = left ? rs.LegL.Value : rs.LegR.Value;
         float other = left ? rs.LegR.Value : rs.LegL.Value;
-        bool hydraulicOk = rs.TaskOk(left ? Tasks.GaugeL : Tasks.GaugeR);
+        bool hydraulicOk = rs.LegWorks(left ? 0 : 1);
 
         // スロットルレバー（-50% ～ 100%）
         var track = new Rect(a.x + 18 * s, a.y + 10 * s, 70 * s, a.height - 80 * s);
@@ -256,7 +271,6 @@ public class StationUI : MonoBehaviour
             if (p % 50 == 0) GUI.Label(new Rect(track.xMax + 20 * s, yy - 10 * s, 60 * s, 20 * s), p + "%", m_Small);
         }
         UIDraw.Fill(new Rect(track.x, Y(0f) - 1.5f, track.width, 3f), Prims.Hex("#ffb000"));
-        if (!hydraulicOk) UIDraw.Fill(new Rect(track.x, track.y, track.width, Y(0.4f) - track.y), new Color(0.6f, 0.1f, 0.05f, 0.5f));
         float fillTop = Mathf.Min(Y(cur), Y(0f)), fillBot = Mathf.Max(Y(cur), Y(0f));
         UIDraw.Fill(new Rect(track.x + 10 * s, fillTop, track.width - 20 * s, fillBot - fillTop), cur >= 0f ? Prims.Hex("#4fd2ff") : Prims.Hex("#ff6a4a"));
         if (!float.IsNaN(m_LegTarget)) UIDraw.Frame(new Rect(track.x - 6 * s, Y(m_LegTarget) - 5 * s, track.width + 12 * s, 10 * s), new Color(1, 1, 1, 0.6f), 2f);
@@ -267,10 +281,10 @@ public class StationUI : MonoBehaviour
 
         // マウスでレバーをつかんで動かす
         var e = Event.current;
-        if (e.type == EventType.MouseDown && track.Contains(e.mousePosition)) { m_DragLever = true; e.Use(); }
+        if (hydraulicOk && e.type == EventType.MouseDown && track.Contains(e.mousePosition)) { m_DragLever = true; e.Use(); }
         if (e.type == EventType.MouseUp) m_DragLever = false;
         if (m_DragLever && (e.type == EventType.MouseDrag || e.type == EventType.MouseDown))
-            m_LegTarget = Mathf.Clamp((track.yMax - e.mousePosition.y) / track.height * 1.5f - 0.5f, -0.5f, hydraulicOk ? 1f : 0.4f);
+            m_LegTarget = Mathf.Clamp((track.yMax - e.mousePosition.y) / track.height * 1.5f - 0.5f, -0.5f, 1f);
 
         // 右側：速度計・両脚のレバー・曲がる向き
         float rx = a.x + 150 * s, rw = a.xMax - rx;
@@ -306,11 +320,23 @@ public class StationUI : MonoBehaviour
         UIDraw.Fill(m_BrakeRect, new Color(0.55f, 0.12f, 0.08f));
         UIDraw.Frame(m_BrakeRect, Prims.Hex("#ff6a4a"), 2f);
         GUI.Label(m_BrakeRect, "ブレーキ（Space）", m_Center);
-        if (e.type == EventType.MouseDown && m_BrakeRect.Contains(e.mousePosition)) { m_Presses++; m_LegTarget = float.NaN; e.Use(); }
+        if (hydraulicOk && e.type == EventType.MouseDown && m_BrakeRect.Contains(e.mousePosition)) { m_Presses++; m_LegTarget = float.NaN; e.Use(); }
 
         string help = "W/S かレバーをドラッグして倒す。両脚そろえると前進、差をつけると曲がる";
-        if (!hydraulicOk) help = "<color=#ff8a6a>油圧が故障中：レバーは 40% まで</color>";
         GUI.Label(new Rect(rx, by + bh + 26 * s, rw, 46 * s), help, m_Small);
+
+        // ももの油圧が切れていると脚が動かない：操作盤全体を赤く覆って知らせる
+        if (!hydraulicOk)
+        {
+            float blink = 0.55f + Mathf.Abs(Mathf.Sin(Time.time * 3f)) * 0.25f;
+            UIDraw.Fill(a, new Color(0.35f, 0.04f, 0.02f, blink));
+            UIDraw.Frame(a, Prims.Hex("#ff6a4a"), 4 * s);
+            var big = new GUIStyle(m_Center) { fontSize = Mathf.RoundToInt(22 * s) };
+            big.normal.textColor = Color.white;
+            string side = left ? "左" : "右";
+            GUI.Label(new Rect(a.x, a.center.y - 50 * s, a.width, 40 * s), $"⚠ {side}脚が動かない", big);
+            GUI.Label(new Rect(a.x, a.center.y, a.width, 50 * s), $"{side}ももの油圧が切れている。\n{side}もも（腰の下の段）の装置を直そう", m_Center);
+        }
     }
 
     // ---------------- 腕
@@ -427,10 +453,37 @@ public class StationUI : MonoBehaviour
         }
         if (e.type == EventType.MouseUp) m_MouseFire = false;
 
+        // ---- 必殺技ゲージと発射ボタン（右の列）
+        float colX = c.x + r + 10 * s, colW = a.xMax - colX;
+        float sp = Mathf.Clamp01(rs.Special.Value / RobotState.SpecialMax);
+        bool charging = rs.SpecialCharging.Value, full = sp >= 1f && !charging;
+        GUI.Label(new Rect(colX, c.y + 46 * s, colW, 20 * s), "必殺ゲージ", m_Small);
+        var gauge = new Rect(colX, c.y + 66 * s, colW - 4 * s, 14 * s);
+        UIDraw.Fill(gauge, new Color(0.05f, 0.06f, 0.07f));
+        float gb = full ? 0.75f + Mathf.Abs(Mathf.Sin(Time.time * 6f)) * 0.25f : 1f;
+        UIDraw.Fill(new Rect(gauge.x, gauge.y, gauge.width * sp, gauge.height), Prims.Hex("#ffd23f") * gb);
+        UIDraw.Frame(gauge, new Color(1, 1, 1, 0.4f), 1.5f);
+        var btn = new Rect(colX, gauge.yMax + 8 * s, colW - 4 * s, 44 * s);
+        UIDraw.Fill(btn, charging ? Prims.Hex("#fff3b0") : full ? Prims.Hex("#ff9a3c") * gb : new Color(0.25f, 0.27f, 0.3f));
+        UIDraw.Frame(btn, full ? Color.white : new Color(0.1f, 0.1f, 0.1f), 2f);
+        var bs = new GUIStyle(m_Center) { fontSize = Mathf.RoundToInt(14 * s) };
+        bs.normal.textColor = full || charging ? new Color(0.12f, 0.08f, 0.02f) : new Color(0.6f, 0.64f, 0.68f);
+        GUI.Label(btn, charging ? "ため中…" : "必殺技（F）", bs);
+        if (full && e.type == EventType.MouseDown && btn.Contains(e.mousePosition)) { TryFireSpecial(rs); e.Use(); }
+        if (rs.BossAlive)
+        {
+            var to2 = rs.BossPos.Value - rs.Pos.Value;
+            float rel2 = Mathf.DeltaAngle(rs.Yaw.Value * Mathf.Rad2Deg, Mathf.Atan2(to2.x, to2.y) * Mathf.Rad2Deg);
+            bool front = Mathf.Abs(rel2) < 8f;
+            GUI.Label(new Rect(colX, btn.yMax + 4 * s, colW, 40 * s),
+                front ? "<color=#7dff6a><b>胴の正面に敵</b></color>" : "<color=#93a6ae>胴の正面に\n敵がいない</color>", m_Small);
+        }
+
         string help = "A/D かレーダーをクリックして砲塔を回す。Space 長押しで連射";
+        help += "\n必殺ビームは胸から胴の正面へ撃つ（脚の係に向きを合わせてもらおう）";
         if (!fuseOk) help = "<color=#ff8a6a>ヒューズが切れていて撃てない（腰の装置を直そう）</color>";
         else if (!rs.TaskOk(Tasks.Scope)) help += "\n<color=#ff8a6a>照準がずれている（頭の装置を直そう）</color>";
-        GUI.Label(new Rect(a.x, a.yMax - 44 * s, a.width, 44 * s), help, m_Small);
+        GUI.Label(new Rect(a.x, a.yMax - 58 * s, a.width, 58 * s), help, m_Small);
     }
 
     // ---------------- 動力炉
