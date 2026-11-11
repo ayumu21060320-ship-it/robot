@@ -523,23 +523,37 @@ public class GameBootstrap : MonoBehaviour
         float s = m_Scale;
         float x = Screen.width * 0.5f + 14 * s, y = 12 * s, w = 280 * s;
         bool armL = rs.TaskOk(Tasks.WiresL), armR = rs.TaskOk(Tasks.WiresR);
-        DrawRect(new Rect(x - 8 * s, y - 6 * s, w + 16 * s, (armL && armR ? 118 : 140) * s), new Color(0.06f, 0.08f, 0.1f, 0.85f));
+        bool legL = rs.LegWorks(0), legR = rs.LegWorks(1);
+        int lines = (armL && armR ? 0 : 1) + (legL && legR ? 0 : 1);
+        DrawRect(new Rect(x - 8 * s, y - 6 * s, w + 16 * s, (136 + lines * 22) * s), new Color(0.06f, 0.08f, 0.1f, 0.85f));
+        float ly = y + 128 * s;
         if (!armL || !armR)
         {
             string stopped = !armL && !armR ? "両腕" : !armL ? "左腕" : "右腕";
-            GUI.Label(new Rect(x, y + 108 * s, w, 24 * s), $"<color=#ff6a4a><b>⚠ {stopped}が停止中（肩の配線が切れている）</b></color>", m_Small);
+            GUI.Label(new Rect(x, ly, w, 24 * s), $"<color=#ff6a4a><b>⚠ {stopped}が停止中（肩の配線が切れている）</b></color>", m_Small);
+            ly += 22 * s;
+        }
+        if (!legL || !legR)
+        {
+            string stopped = !legL && !legR ? "両脚" : !legL ? "左脚" : "右脚";
+            GUI.Label(new Rect(x, ly, w, 24 * s), $"<color=#ff6a4a><b>⚠ {stopped}が停止中（ももの油圧が切れている）</b></color>", m_Small);
         }
         DrawBar(new Rect(x, y, w, 22 * s), rs.Hull.Value / RobotState.MaxHull, Prims.Hex("#ff6a4a"), $"装甲  {Mathf.CeilToInt(rs.Hull.Value)}");
         DrawBar(new Rect(x, y + 30 * s, w, 22 * s), rs.Power.Value / RobotState.MaxPower, Prims.Hex("#d9a920"), $"動力  {Mathf.CeilToInt(rs.Power.Value)}");
+        // 必殺ゲージ（満タンで点滅。頭部砲の席で F）
+        float spc = Mathf.Clamp01(rs.Special.Value / RobotState.SpecialMax);
+        float blink = spc >= 1f ? 0.7f + Mathf.Abs(Mathf.Sin(Time.time * 6f)) * 0.3f : 1f;
+        string spLabel = rs.SpecialCharging.Value ? "必殺技 ため中！" : spc >= 1f ? "必殺技OK！ 頭部砲の席で F" : $"必殺  {Mathf.FloorToInt(spc * 100)}%";
+        DrawBar(new Rect(x, y + 60 * s, w, 18 * s), spc, Prims.Hex("#ffd23f") * blink, spLabel);
         int t = Mathf.FloorToInt(rs.Elapsed.Value);
-        GUI.Label(new Rect(x, y + 60 * s, w, 24 * s), $"スコア <color=#ffb000>{rs.Score.Value}</color>　{t / 60}:{t % 60:00}", m_Label);
+        GUI.Label(new Rect(x, y + 82 * s, w, 24 * s), $"スコア <color=#ffb000>{rs.Score.Value}</color>　{t / 60}:{t % 60:00}", m_Label);
         // 巨大な敵がどの方向・どのくらい先にいるか
         if (rs.BossAlive)
         {
             var to = rs.BossPos.Value - rs.Pos.Value;
             float rel = Mathf.DeltaAngle(rs.Yaw.Value * Mathf.Rad2Deg, Mathf.Atan2(to.x, to.y) * Mathf.Rad2Deg);
             string dir = Mathf.Abs(rel) < 20f ? "正面" : rel > 0 ? (rel < 100f ? "右前" : "右後ろ") : (rel > -100f ? "左前" : "左後ろ");
-            GUI.Label(new Rect(x, y + 86 * s, w, 24 * s), $"<color=#93a6ae>敵：{dir} {Mathf.RoundToInt(to.magnitude)}m</color>", m_Small);
+            GUI.Label(new Rect(x, y + 106 * s, w, 24 * s), $"<color=#93a6ae>敵：{dir} {Mathf.RoundToInt(to.magnitude)}m</color>", m_Small);
         }
 
         // 巨大な敵の体力：右半分（外の画面）で、敵の頭のすぐ上に出す。画面の外にいるときは右半分の上の端に出す

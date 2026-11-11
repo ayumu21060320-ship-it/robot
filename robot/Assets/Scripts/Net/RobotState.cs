@@ -36,6 +36,11 @@ public class RobotState : NetworkBehaviour
     public const float BossSwipeWindup = 1.8f;    // 腕を振りかぶっている時間（見た目と合わせる）
     public const int BossIdle = 0, BossSwipe = 1, BossBarrage = 2, BossStomp = 3;
 
+    // ---- 必殺技（胸のビーム）
+    public const float SpecialMax = 100f;          // ゲージの満タン
+    public const float SpecialChargeTime = 2.2f;   // 撃つ前のため（見た目と合わせる）
+    const float SpecialDamage = 70f, SpecialLength = 230f, SpecialWidth = 7f;
+
     // ---- 全員に配る状態
     public NetworkVariable<Vector2> Pos = new NetworkVariable<Vector2>();
     public NetworkVariable<float> Yaw = new NetworkVariable<float>();          // ラジアン。0 で +z 向き、増えると右回り
@@ -62,9 +67,15 @@ public class RobotState : NetworkBehaviour
     public NetworkVariable<int> BossAction = new NetworkVariable<int>();       // 今の攻撃の種類
     public NetworkVariable<int> BossActionId = new NetworkVariable<int>();     // 攻撃を始めるたびに +1（見た目の合図）
 
+    // ---- 必殺技
+    public NetworkVariable<float> Special = new NetworkVariable<float>();       // ゲージ（敵に攻撃を当てるとたまる）
+    public NetworkVariable<bool> SpecialCharging = new NetworkVariable<bool>();
+    public NetworkVariable<int> SpecialId = new NetworkVariable<int>();        // 撃ち始めるたびに +1（見た目の合図）
+
     public NetworkList<int> Occupant;   // 席ごとの操縦士（clientId + 1、空席は 0）
     public NetworkList<int> FireHp;     // 席ごとの火災（0 = 燃えていない、残り消火回数）
     public NetworkList<int> TaskBroken; // 整備タスクごとに 1 = 故障中
+    public NetworkList<int> BuildingHp; // ビルごとの耐久（0 = 崩れた）
 
     RobotVisual m_Visual;
 
@@ -81,6 +92,7 @@ public class RobotState : NetworkBehaviour
     int m_BossShotsLeft;
     float m_BossShotT;
     bool m_BossHitDone;
+    float m_SpecialT = -1f;
     struct Bolt { public Vector2 P; public Vector2 D; public float Life; }
     struct Shot { public Vector3 P; public Vector3 V; public float Life; }
 
@@ -89,6 +101,7 @@ public class RobotState : NetworkBehaviour
         Occupant = new NetworkList<int>();
         FireHp = new NetworkList<int>();
         TaskBroken = new NetworkList<int>();
+        BuildingHp = new NetworkList<int>();
     }
 
     public override void OnNetworkSpawn()
@@ -112,6 +125,8 @@ public class RobotState : NetworkBehaviour
     }
 
     public bool BossAlive => BossHp.Value > 0f;
+    public bool BuildingAlive(int i) => i < BuildingHp.Count && BuildingHp[i] > 0;
+    public bool LegWorks(int leg) => TaskOk(leg == 0 ? Tasks.GaugeL : Tasks.GaugeR);
 
     // ================================================================ 操縦士からの依頼（RPC）
 
@@ -155,6 +170,21 @@ public class RobotState : NetworkBehaviour
         TaskBroken[index] = 0;
         Score.Value += 50;
     }
+
+    /// <summary>頭部砲の席から必殺技を撃つ（ゲージが満タンのときだけ）</summary>
+    [Rpc(SendTo.Server)]
+    public void FireSpecialRpc(RpcParams rpcParams = default)
+    {
+        var p = GetPlayer(rpcParams.Receive.SenderClientId);
+        if (p == null || p.Station.Value != Stations.Head || GameState.Value != Playing) return;
+        if (Special.Value < SpecialMax || SpecialCharging.Value) return;
+        SpecialCharging.Value = true;
+        SpecialId.Value++;
+        m_SpecialT = 0f;
+    }
+
+    [Rpc(SendTo.ClientsAndHost)]
+    void BeamFxRpc(Vector3 from, float yaw, float length) { if (m_Visual) m_Visual.SpawnBeam(from, yaw, length); }
 
     [Rpc(SendTo.Server)]
     public void RestartRpc()
@@ -205,6 +235,11 @@ public class RobotState : NetworkBehaviour
         for (int i = 0; i < Stations.Count; i++) { Occupant.Add(0); FireHp.Add(0); m_Cooldown[i] = 0f; }
         TaskBroken.Clear();
         for (int i = 0; i < Tasks.Count; i++) TaskBroken.Add(0);
+        BuildingHp.Clear();
+        for (int i = 0; i < ExteriorWorld.Buildings.Count; i++) BuildingHp.Add(3);
+        Special.Value = 0f;
+        SpecialCharging.Value = false;
+        m_SpecialT = -1f;
         m_TaskBreakT = 15f;
         m_Bolts.Clear();
         m_Shots.Clear();
@@ -266,9 +301,9 @@ public class RobotState : NetworkBehaviour
                 case StationType.Leg:
                 {
                     float lever = i == Stations.LeftLeg ? legL : legR;
-                    // 油圧が壊れていると、レバーを全部は倒せない
-                    float max = TaskOk(i == Stations.LeftLeg ? Tasks.GaugeL : Tasks.GaugeR) ? 1f : 0.4f;
-                    lever = Mathf.Clamp(lever + stick.y * LeverRate * dt, -0.5f, max);
+                    // ももの油圧が壊れていると、その脚はまったく動かない（下で 0 に戻される）
+                    if (!LegWorks(i == Stations.LeftLeg ? 0 : 1)) break;
+                    lever = Mathf.Clamp(lever + stick.y * LeverRate * dt, -0.5f, 1f);
                     if (Mathf.Abs(stick.y) < 0.1f && Mathf.Abs(lever) < 0.05f) lever = 0f;
                     if (pressed) lever = 0f;
                     if (i == Stations.LeftLeg) legL = lever; else legR = lever;
@@ -328,8 +363,8 @@ public class RobotState : NetworkBehaviour
             m_TaskBreakT = Random.Range(16f, 28f);
         }
         // 油圧の故障で、すでに倒れているレバーも戻される
-        if (!TaskOk(Tasks.GaugeL)) legL = Mathf.Min(legL, 0.4f);
-        if (!TaskOk(Tasks.GaugeR)) legR = Mathf.Min(legR, 0.4f);
+        if (!LegWorks(0)) legL = 0f;   // 油圧が切れた脚は止まる
+        if (!LegWorks(1)) legR = 0f;
         if (!TaskOk(Tasks.Valve)) power -= 1.5f * dt;   // 冷却が止まって動力が漏れる
         if (!TaskOk(Tasks.Vent)) hull -= 0.4f * dt;     // 熱がこもって装甲が傷む
 
@@ -352,6 +387,8 @@ public class RobotState : NetworkBehaviour
         else if (!Blocked(new Vector2(pos.x, np.y))) pos.y = np.y;
         else m_Speed = 0f; // ぶつかったら止まる
         Pos.Value = pos;
+        // ビルは踏み倒して進む（少し速さが落ちる）
+        if (Mathf.Abs(m_Speed) > 0.1f && CrushBuildings(pos, ExteriorWorld.RobotRadius)) m_Speed *= 0.6f;
         MoveSpeed.Value = m_Speed;
         TurnRate.Value = m_Turn;
         power -= ((Mathf.Abs(legL) + Mathf.Abs(legR)) * 0.9f * pf + 0.12f) * dt;
@@ -368,6 +405,19 @@ public class RobotState : NetworkBehaviour
             if (!TaskOk(k == 0 ? Tasks.WiresL : Tasks.WiresR)) { m_PunchHitAt[k] = -1f; continue; } // 振っている途中で配線が切れたら止まる
             m_PunchHitAt[k] -= dt;
             if (m_PunchHitAt[k] <= 0f) { m_PunchHitAt[k] = -1f; PunchHit(k == 0 ? -1 : 1, k == 0 ? aimL : aimR); }
+        }
+
+        // 必殺技：ためてから撃つ
+        if (m_SpecialT >= 0f)
+        {
+            m_SpecialT += dt;
+            if (m_SpecialT >= SpecialChargeTime)
+            {
+                m_SpecialT = -1f;
+                FireSpecial();
+                Special.Value = 0f;
+                SpecialCharging.Value = false;
+            }
         }
 
         UpdateBolts(dt);
@@ -398,6 +448,59 @@ public class RobotState : NetworkBehaviour
             DamageBoss(PunchDamage);
             BoomFxRpc(new Vector3(fist.x, 15.4f * TitanScale, fist.y), 1.6f, new Color(1f, 0.82f, 0.25f));
         }
+        CrushBuildings(fist, 5f);   // 拳の先のビルは一撃で崩れる
+    }
+
+    // ================================================================ ビル
+
+    /// <summary>center から radius 以内に触れているビルを崩す。崩したら true</summary>
+    bool CrushBuildings(Vector2 center, float radius, bool byTitan = true)
+    {
+        bool any = false;
+        var list = ExteriorWorld.Buildings;
+        for (int i = 0; i < list.Count; i++)
+            if (BuildingAlive(i) && Vector2.Distance(list[i].Pos, center) < list[i].Radius + radius) { DestroyBuilding(i, byTitan); any = true; }
+        return any;
+    }
+
+    void DestroyBuilding(int i, bool byTitan = true)
+    {
+        if (!BuildingAlive(i)) return;
+        BuildingHp[i] = 0;
+        var b = ExteriorWorld.Buildings[i];
+        BoomFxRpc(new Vector3(b.Pos.x, b.Size.y * 0.4f, b.Pos.y), 1.2f + b.Size.y / 18f, new Color(0.62f, 0.58f, 0.5f));
+        if (byTitan) Score.Value += 40;
+    }
+
+    // ================================================================ 必殺技
+
+    /// <summary>胸から、タイタンの正面へまっすぐ太いビームを撃つ。当たった敵は大ダメージでひるみ、通り道のビルは崩れる</summary>
+    void FireSpecial()
+    {
+        var origin = LocalToWorld(0f, 1.6f * TitanScale);
+        var dir = new Vector2(Mathf.Sin(Yaw.Value), Mathf.Cos(Yaw.Value));
+        BeamFxRpc(new Vector3(origin.x, 14.9f * TitanScale, origin.y), Yaw.Value, SpecialLength);
+        // 通り道のビル
+        var list = ExteriorWorld.Buildings;
+        for (int i = 0; i < list.Count; i++)
+        {
+            if (!BuildingAlive(i)) continue;
+            var v = list[i].Pos - origin;
+            float along = Vector2.Dot(v, dir), side = Mathf.Abs(v.x * dir.y - v.y * dir.x);
+            if (along > 0f && along < SpecialLength && side < list[i].Radius + SpecialWidth) DestroyBuilding(i);
+        }
+        // 敵
+        if (!BossAlive) return;
+        var to = BossPos.Value - origin;
+        float a = Vector2.Dot(to, dir), sd = Mathf.Abs(to.x * dir.y - to.y * dir.x);
+        if (a > 0f && a < SpecialLength && sd < BossRadius + SpecialWidth)
+        {
+            BoomFxRpc(new Vector3(BossPos.Value.x, 24f, BossPos.Value.y), 4f, new Color(0.6f, 0.95f, 1f));
+            // ひるませる：攻撃を中断して、しばらく次の攻撃をしない
+            if (BossAction.Value != BossIdle) EndBossAction();
+            m_BossCd = 7f;
+            DamageBoss(SpecialDamage);
+        }
     }
 
     void UpdateBolts(float dt)
@@ -413,8 +516,14 @@ public class RobotState : NetworkBehaviour
                 bolt.Life = 0f;
                 BoomFxRpc(new Vector3(bolt.P.x, 26f, bolt.P.y), 0.5f, new Color(0.56f, 0.96f, 1f));
             }
-            foreach (var bd in ExteriorWorld.Buildings)
-                if (bolt.Life > 0f && Vector2.Distance(bd.Pos, bolt.P) < bd.Radius && bd.Size.y > 25f) bolt.Life = 0f;
+            var blds = ExteriorWorld.Buildings;
+            for (int i = 0; i < blds.Count && bolt.Life > 0f; i++)
+                if (BuildingAlive(i) && Vector2.Distance(blds[i].Pos, bolt.P) < blds[i].Radius)
+                {
+                    bolt.Life = 0f;
+                    BuildingHp[i] = BuildingHp[i] - 1;      // 砲撃3発で崩れる
+                    if (BuildingHp[i] <= 0) { BuildingHp[i] = 1; DestroyBuilding(i); }
+                }
             if (bolt.Life <= 0f) m_Bolts.RemoveAt(b); else m_Bolts[b] = bolt;
         }
     }
@@ -478,7 +587,12 @@ public class RobotState : NetworkBehaviour
                     {
                         m_BossHitDone = true;
                         BoomFxRpc(new Vector3(bp.x, 1f, bp.y), 3.5f, new Color(0.7f, 0.6f, 0.5f));
-                        if (dist < 70f) RobotHit(6f);
+                        if (dist < 70f)
+                        {
+                            RobotHit(6f);
+                            // 地面の揺れで、片方の脚の油圧が切れることがある
+                            if (Random.value < 0.4f) BreakTask(Random.value < 0.5f ? Tasks.GaugeL : Tasks.GaugeR);
+                        }
                     }
                     if (m_BossActT >= 2.6f) EndBossAction();
                     break;
@@ -494,6 +608,7 @@ public class RobotState : NetworkBehaviour
         if (Vector2.Distance(nb, Pos.Value) > BossRadius + ExteriorWorld.RobotRadius && Mathf.Abs(nb.x) < ExteriorWorld.Bounds && Mathf.Abs(nb.y) < ExteriorWorld.Bounds) bp = nb;
         BossPos.Value = bp;
         BossSpeed.Value = speed;
+        if (speed > 0f) CrushBuildings(bp, BossRadius, false);   // 敵もビルを踏みつぶして進む
 
         // 攻撃を選ぶ
         m_BossCd -= dt;
@@ -517,6 +632,7 @@ public class RobotState : NetworkBehaviour
     {
         if (!BossAlive) return;
         BossHp.Value = Mathf.Max(0f, BossHp.Value - dmg);
+        if (!SpecialCharging.Value) Special.Value = Mathf.Min(SpecialMax, Special.Value + dmg * 0.9f);  // 攻撃を当てると必殺ゲージがたまる
         Score.Value += Mathf.RoundToInt(dmg * 10f);
         if (BossHp.Value > 0f) return;
         var bp = BossPos.Value;
