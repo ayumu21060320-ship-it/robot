@@ -25,7 +25,10 @@ const path = require('path');
 const { WebSocketServer } = require('ws');
 
 const PORT = Number(process.env.PORT) || 8080;
-const PUBLIC = path.join(__dirname, 'public');
+// 配るゲームのフォルダ：PUBLIC_DIR → server/public → Unity の書き出し先（robot/Builds/Web）の順に探す
+const PUBLIC = process.env.PUBLIC_DIR ? path.resolve(process.env.PUBLIC_DIR)
+  : fs.existsSync(path.join(__dirname, 'public')) ? path.join(__dirname, 'public')
+  : path.join(__dirname, '..', 'robot', 'Builds', 'Web');
 const MAX_PLAYERS = 6;               // ホストを含めた1部屋の最大人数
 const MAX_MESSAGE = 1024 * 1024;     // 1回に送れるデータの上限（1MB）
 
@@ -47,7 +50,7 @@ function serveFile(req, res) {
       res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
       res.end(fs.existsSync(path.join(PUBLIC, 'index.html'))
         ? 'Not found'
-        : 'ゲームのファイルがまだありません。Unity でメニュー「Robot → Web版をビルド」を実行してください（server/public に書き出されます）。');
+        : 'ゲームのファイルがまだありません。Unity でメニュー「Robot → Web版をビルド」を実行してください（robot/Builds/Web に書き出されます）。');
       return;
     }
     const headers = { 'Content-Length': st.size, 'Cache-Control': 'no-cache' };

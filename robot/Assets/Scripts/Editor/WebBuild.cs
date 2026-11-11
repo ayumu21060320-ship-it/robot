@@ -3,13 +3,14 @@ using UnityEditor;
 using UnityEngine;
 
 /// <summary>
-/// メニュー「Robot → Web版をビルド」。ブラウザで遊べる版（WebGL）を、サーバーの server/public に書き出す。
-/// server フォルダをまるごとサーバーにアップロードして起動すると、その URL を開くだけで遊べて、部屋番号でマルチもできる。
+/// メニュー「Robot → Web版をビルド」。ブラウザで遊べる版（WebGL）を robot/Builds/Web に書き出す。
+/// 中身を GitHub Pages 用のリポジトリにアップロードすると、URL を開くだけで遊べる（将棋のゲームと同じ方法）。
+/// 自分のサーバー（server/）で配るときは、npm start がこのフォルダをそのまま配る。
 /// （Unity Hub で「Web Build Support」モジュールを入れておく必要がある）
 /// </summary>
 public static class WebBuild
 {
-    const string OutDir = "../server/public";   // Unity プロジェクト（robot/）から見た場所
+    const string OutDir = "Builds/Web";   // Unity プロジェクト（robot/）から見た場所
 
     [MenuItem("Robot/Web版をビルド")]
     public static void Build()
@@ -28,9 +29,9 @@ public static class WebBuild
             return;
         }
 
-        // gzip で小さくする（server.js が Content-Encoding を付けて配るので、ブラウザがそのまま展開する）
+        // GitHub Pages は Brotli に対応しないので Gzip。サーバー側の設定がなくても動くように、ブラウザ側で展開する（Decompression Fallback）
         PlayerSettings.WebGL.compressionFormat = WebGLCompressionFormat.Gzip;
-        PlayerSettings.WebGL.decompressionFallback = false;
+        PlayerSettings.WebGL.decompressionFallback = true;
         PlayerSettings.runInBackground = true;          // ほかのウィンドウを触っていても止まらない
         PlayerSettings.WebGL.template = "APPLICATION:Default";
 
@@ -48,9 +49,9 @@ public static class WebBuild
         {
             EditorUtility.RevealInFinder(Path.GetFullPath(OutDir));
             EditorUtility.DisplayDialog("Web版をビルド",
-                "できました：server/public\n\n" +
-                "・自分のPCで試す：server フォルダで npm install → npm start を実行して http://localhost:8080 を開く\n" +
-                "・みんなで遊ぶ：server フォルダをまるごとサーバーにアップロードして npm start で起動する（README 参照）", "OK");
+                "できました：robot/Builds/Web\n\n" +
+                "このフォルダの中身（index.html・Build・TemplateData など）を、GitHub Pages 用のリポジトリにアップロードしてください（README の「Web版を公開する」）。\n" +
+                "※ index.html をダブルクリックしても動きません。", "OK");
         }
         else
         {
