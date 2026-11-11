@@ -3,12 +3,7 @@
     "rootNamespace": "",
     "references": [
         "Unity.Netcode.Runtime",
-        "Unity.InputSystem",
-        "Unity.Networking.Transport",
-        "Unity.Services.Core",
-        "Unity.Services.Authentication",
-        "Unity.Services.Relay",
-        "Unity.Services.Multiplayer"
+        "Unity.InputSystem"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],
@@ -22,16 +17,6 @@
             "name": "com.unity.netcode.gameobjects",
             "expression": "2.0.0",
             "define": "HAS_NETCODE"
-        },
-        {
-            "name": "com.unity.services.multiplayer",
-            "expression": "1.0.0",
-            "define": "HAS_RELAY"
-        },
-        {
-            "name": "com.unity.services.relay",
-            "expression": "1.0.0",
-            "define": "HAS_RELAY"
         }
     ],
     "noEngineReferences": false

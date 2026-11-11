@@ -28,6 +28,7 @@ public class GameBootstrap : MonoBehaviour
     float m_IntSize = 9f;
 
     string m_RoomInput = "";
+    string m_UrlInput;
     string m_Status = "";
     bool m_Busy;   // 部屋を作っている・入ろうとしているあいだ
 
@@ -185,12 +186,7 @@ public class GameBootstrap : MonoBehaviour
         RegisterPrefabs();
         RobotState.UseLobby = false;
         OnlineRooms.Clear();
-#if UNITY_WEBGL && !UNITY_EDITOR && HAS_NETCODE
-        // ブラウザは自分でホストを開けないので、1人でも Relay の部屋を作る
-        CreateRoom(false);
-#else
-        m_Status = networkManager.StartHost() ? "" : "始められませんでした。";
-#endif
+        m_Status = OnlineRooms.StartSolo(networkManager) ? "" : "始められませんでした。";
     }
 
     /// <summary>部屋を作ってホストになる。lobby = true なら待機室から始める</summary>
@@ -199,17 +195,18 @@ public class GameBootstrap : MonoBehaviour
         if (m_Busy) return;
         m_Busy = true;
         m_Status = "部屋を作っています…";
+        SaveUrl();
         RegisterPrefabs();
         RobotState.UseLobby = lobby;
         try
         {
-            await OnlineRooms.CreateRoom(networkManager, MaxPlayers);
+            await OnlineRooms.CreateRoom(networkManager);
             m_Status = "";
         }
         catch (Exception e)
         {
             Debug.LogException(e);
-            m_Status = "部屋を作れませんでした：" + OnlineRooms.Explain(e, false);
+            m_Status = "部屋を作れませんでした：" + e.Message;
             if (networkManager.IsListening) networkManager.Shutdown();
         }
         m_Busy = false;
@@ -220,9 +217,10 @@ public class GameBootstrap : MonoBehaviour
     {
         if (m_Busy) return;
         string code = OnlineRooms.Normalize(m_RoomInput);
-        if (code.Length < 4) { m_Status = "部屋番号（6文字の英数字）を入力してください。"; return; }
+        if (code.Length < 4) { m_Status = "部屋番号（4けたの数字）を入力してください。"; return; }
         m_Busy = true;
         m_Status = $"部屋 {code} に入っています…";
+        SaveUrl();
         RegisterPrefabs();
         try
         {
@@ -231,7 +229,7 @@ public class GameBootstrap : MonoBehaviour
         catch (Exception e)
         {
             Debug.LogException(e);
-            m_Status = "部屋に入れませんでした：" + OnlineRooms.Explain(e, true);
+            m_Status = "部屋に入れませんでした：" + e.Message;
             if (networkManager.IsListening) networkManager.Shutdown();
         }
         m_Busy = false;
@@ -269,8 +267,18 @@ public class GameBootstrap : MonoBehaviour
         if (!networkManager.IsServer)
         {
             string reason = networkManager.DisconnectReason;
+            if (string.IsNullOrEmpty(reason)) reason = OnlineRooms.LastError(networkManager);
+            if (m_Busy) return;   // 入る途中の失敗は JoinRoom が表示する
             m_Status = string.IsNullOrEmpty(reason) ? "部屋から切断されました（部屋を作った人が抜けると部屋はなくなります）。" : "切断されました：" + reason;
         }
+    }
+
+    /// <summary>エディタ・PC 版で入力したサーバーの URL を覚えておく</summary>
+    void SaveUrl()
+    {
+        if (OnlineRooms.UrlFromPage || m_UrlInput == null) return;
+        m_UrlInput = OnlineRooms.NormalizeUrl(m_UrlInput);
+        OnlineRooms.ServerUrl = m_UrlInput;
     }
 
     void Leave()
@@ -356,9 +364,20 @@ public class GameBootstrap : MonoBehaviour
         if (OnlineRooms.Available)
         {
             GUILayout.Label($"<b>みんなで遊ぶ</b>（最大{MaxPlayers}人）", m_Label);
+            if (!OnlineRooms.UrlFromPage)
+            {
+                // エディタ・PC 版：どのサーバーにつなぐか（Web 版は開いたページのサーバーに自動でつなぐ）
+                if (m_UrlInput == null) m_UrlInput = OnlineRooms.ServerUrl;
+                GUILayout.BeginHorizontal();
+                GUILayout.Label("サーバー", m_Label, GUILayout.Width(90 * s));
+                m_UrlInput = GUILayout.TextField(m_UrlInput, 120, m_Field, GUILayout.Width(330 * s), GUILayout.Height(32 * s));
+                GUILayout.EndHorizontal();
+                GUILayout.Label("<color=#93a6ae>自分のPCで server を起動したときは ws://localhost:8080/ws のまま。公開したサーバーなら、そのアドレス（例：my-titan.onrender.com）</color>", m_Small);
+                GUILayout.Space(6 * s);
+            }
             GUILayout.BeginHorizontal();
             if (GUILayout.Button("部屋を作る", m_Button, GUILayout.Width(240 * s), GUILayout.Height(44 * s))) CreateRoom(true);
-            GUILayout.Label("部屋番号がもらえるので、友だちに教えよう", m_Small);
+            GUILayout.Label("4けたの部屋番号がもらえるので、友だちに教えよう", m_Small);
             GUILayout.EndHorizontal();
             GUILayout.Space(10 * s);
             GUILayout.BeginHorizontal();
@@ -371,11 +390,7 @@ public class GameBootstrap : MonoBehaviour
         }
         else
         {
-#if HAS_NETCODE
-            GUILayout.Label("<color=#93a6ae>部屋番号でみんなと遊ぶには、Multiplayer Services パッケージを入れて Unity Cloud にリンクしてください（README の「オンラインの準備」）。</color>", m_Small);
-#else
-            GUILayout.Label("<color=#93a6ae>いまは1人用。部屋番号でみんなと遊ぶには、Netcode と Multiplayer Services のパッケージが必要です（README の「オンラインの準備」）。</color>", m_Small);
-#endif
+            GUILayout.Label("<color=#93a6ae>いまは1人用。部屋番号でみんなと遊ぶには Netcode for GameObjects のパッケージが必要です（README の「オンラインの準備」）。</color>", m_Small);
             GUILayout.Space(10 * s);
         }
 

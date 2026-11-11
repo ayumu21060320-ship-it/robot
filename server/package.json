@@ -1,0 +1,15 @@
+{
+  "name": "titan-crew-server",
+  "version": "1.0.0",
+  "description": "タイタンクルーの Web 版を配り、部屋番号ごとに通信を中継するサーバー",
+  "main": "server.js",
+  "private": true,
+  "scripts": {
+    "start": "node server.js",
+    "test": "node test.js"
+  },
+  "engines": { "node": ">=18" },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}
