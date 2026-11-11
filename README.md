@@ -37,11 +37,11 @@ Unity プロジェクト本体は `robot/` フォルダにあります。
 
 ### オンラインの準備（最初に1回だけ）
 
-学校のネットワークでは Unity のパッケージが取れないことがあるので、**家など制限のない回線で**やる
-（将棋のゲームを同じPCで開いたことがあれば、パッケージがPCに残っていて学校でも入ることがある）。
+学校のネットワークでは Unity のパッケージが取れないので、**家やスマホのテザリングなど制限のない回線で**やる。
 
-1. Unity でプロジェクトを開くと、`Packages/manifest.json` に入れた **Netcode for GameObjects** と **Multiplayer Services 2.4.1** が入る
-   - 入ると `HAS_NETCODE` と `HAS_RELAY` が定義され、Relay でつなぐようになる
+1. **Window → Package Manager** → 左上の **＋** → **Install package by name...** に `com.unity.services.multiplayer`、Version に `2.4.1` と入れて Install
+   - 学校の回線では取れないので、`manifest.json` には入れていない（入れると学校でプロジェクトが開けなくなる）
+   - 入ると `HAS_RELAY` が定義され、Relay でつなぐようになる。入れるまでは、GitHub Pages に置いた Web版は1人用だけ遊べる
 2. **Edit → Project Settings → Services** で、Unity Cloud のプロジェクトにリンクする（将棋のゲームと同じアカウントでよい）
 3. [Unity Cloud](https://cloud.unity.com/) で、そのプロジェクトの **Relay** を有効にする
 4. メニュー **Robot → ゲームのシーンを作成** をもう一度押す（シーンとプレハブを本物の Netcode 用に作り直す。これをしないと NetworkManager が「Missing Script」になる）
