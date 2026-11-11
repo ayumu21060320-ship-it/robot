@@ -547,6 +547,11 @@ public class GameBootstrap : MonoBehaviour
         DrawBar(new Rect(x, y + 60 * s, w, 18 * s), spc, Prims.Hex("#ffd23f") * blink, spLabel);
         int t = Mathf.FloorToInt(rs.Elapsed.Value);
         GUI.Label(new Rect(x, y + 82 * s, w, 24 * s), $"スコア <color=#ffb000>{rs.Score.Value}</color>　{t / 60}:{t % 60:00}", m_Label);
+        if (rs.GuardL.Value || rs.GuardR.Value)
+        {
+            string g = rs.GuardL.Value && rs.GuardR.Value ? "両腕でガード中" : rs.GuardL.Value ? "左腕でガード中" : "右腕でガード中";
+            GUI.Label(new Rect(x + w - 130 * s, y + 84 * s, 130 * s, 22 * s), $"<color=#4fd2ff><b>{g}</b></color>", m_Small);
+        }
         // 巨大な敵がどの方向・どのくらい先にいるか
         if (rs.BossAlive)
         {
@@ -586,7 +591,7 @@ public class GameBootstrap : MonoBehaviour
             if (rs.BossAction.Value == RobotState.BossSwipe)
             {
                 var warn = new GUIStyle(m_Label) { alignment = TextAnchor.MiddleCenter };
-                GUI.Label(new Rect(center.x - 200 * s, br.y - 30 * s, 400 * s, 24 * s), "<color=#ff6a4a><b>⚠ 腕を振りかぶっている！ 離れろ</b></color>", warn);
+                GUI.Label(new Rect(center.x - 200 * s, br.y - 30 * s, 400 * s, 24 * s), "<color=#ff6a4a><b>⚠ 腕を振りかぶっている！ 離れるか両腕でガード</b></color>", warn);
             }
         }
 

@@ -29,12 +29,17 @@ public class RobotState : NetworkBehaviour
     const float PunchDamage = 12f;
 
     // ---- 巨大な敵（1体だけ）
-    public const float BossMaxHp = 320f;
+    public const float BossMaxHp = 220f;          // 操縦が大変なので、敵は少し弱め
     public const float BossRadius = 11f;           // 当たり判定の半径（m）
     public static readonly Vector2 BossStart = new Vector2(0f, 150f);
     const float BossWalkSpeed = 2.3f, BossTurnSpeed = 0.5f, BossReach = 38f;
     public const float BossSwipeWindup = 1.8f;    // 腕を振りかぶっている時間（見た目と合わせる）
-    public const int BossIdle = 0, BossSwipe = 1, BossBarrage = 2, BossStomp = 3;
+    public const int BossIdle = 0, BossSwipe = 1, BossBarrage = 2, BossStomp = 3;   // BossBarrage（遠距離の光弾）は使わない
+    const float SwipeDamage = 9f, StompDamage = 4f, StompRange = 55f;
+
+    // ---- ガード（腕の席で W 長押し）
+    const float GuardCut = 0.4f;          // 腕1本で受けるダメージを 40% 減らす（両腕で 80%）
+    const float GuardPowerCost = 0.6f;    // ガード中の腕1本あたりの動力（毎秒）
 
     // ---- 必殺技（胸のビーム）
     public const float SpecialMax = 100f;          // ゲージの満タン
@@ -51,6 +56,8 @@ public class RobotState : NetworkBehaviour
     public NetworkVariable<float> AimL = new NetworkVariable<float>();         // ラジアン。+ で右へ
     public NetworkVariable<float> AimR = new NetworkVariable<float>();
     public NetworkVariable<float> AimHead = new NetworkVariable<float>();
+    public NetworkVariable<bool> GuardL = new NetworkVariable<bool>();         // その腕でガード中
+    public NetworkVariable<bool> GuardR = new NetworkVariable<bool>();
     public NetworkVariable<int> PunchL = new NetworkVariable<int>();           // パンチするたびに +1（見た目の合図）
     public NetworkVariable<int> PunchR = new NetworkVariable<int>();
     public NetworkVariable<int> GameState = new NetworkVariable<int>(Playing);
@@ -84,17 +91,13 @@ public class RobotState : NetworkBehaviour
     readonly float[] m_PunchHitAt = { -1f, -1f };
     readonly Dictionary<ulong, int> m_LastAct = new Dictionary<ulong, int>();
     readonly List<Bolt> m_Bolts = new List<Bolt>();
-    readonly List<Shot> m_Shots = new List<Shot>();
     float m_TaskBreakT;
     float m_Speed, m_Turn;
     // 敵の行動
     float m_BossCd, m_BossActT;
-    int m_BossShotsLeft;
-    float m_BossShotT;
     bool m_BossHitDone;
     float m_SpecialT = -1f;
     struct Bolt { public Vector2 P; public Vector2 D; public float Life; }
-    struct Shot { public Vector3 P; public Vector3 V; public float Life; }
 
     void Awake()
     {
@@ -197,8 +200,6 @@ public class RobotState : NetworkBehaviour
     [Rpc(SendTo.ClientsAndHost)]
     void BoltFxRpc(Vector3 from, float yaw) { if (m_Visual) m_Visual.SpawnBolt(from, yaw); }
 
-    [Rpc(SendTo.ClientsAndHost)]
-    void ShotFxRpc(Vector3 from, Vector3 velocity) { if (m_Visual) m_Visual.SpawnShot(from, velocity); }
 
     [Rpc(SendTo.ClientsAndHost)]
     void BoomFxRpc(Vector3 at, float size, Color color) { if (m_Visual) m_Visual.Boom(at, size, color); }
@@ -227,7 +228,7 @@ public class RobotState : NetworkBehaviour
         BossHp.Value = BossMaxHp;
         BossSpeed.Value = 0f;
         BossAction.Value = BossIdle;
-        m_BossCd = 6f;
+        m_BossCd = 9f;
         m_BossActT = 0f;
 
         Occupant.Clear();
@@ -242,7 +243,6 @@ public class RobotState : NetworkBehaviour
         m_SpecialT = -1f;
         m_TaskBreakT = 15f;
         m_Bolts.Clear();
-        m_Shots.Clear();
         m_PunchHitAt[0] = m_PunchHitAt[1] = -1f;
         foreach (var p in CrewPlayer.All) p.Station.Value = -1;
     }
@@ -276,6 +276,7 @@ public class RobotState : NetworkBehaviour
         float hull = Hull.Value;
         float legL = LegL.Value, legR = LegR.Value;
         float aimL = AimL.Value, aimR = AimR.Value, aimH = AimHead.Value;
+        bool guardL = false, guardR = false;
 
         // ---- 操縦席ごとの入力
         for (int i = 0; i < Stations.Count; i++)
@@ -314,9 +315,12 @@ public class RobotState : NetworkBehaviour
                     int k = i == Stations.LeftArm ? 0 : 1;
                     // 肩の配線が切れていると、その腕はまったく動かない（狙いもパンチもできない）
                     if (!TaskOk(k == 0 ? Tasks.WiresL : Tasks.WiresR)) break;
+                    // ガード：長押ししているあいだ腕を顔の前で構える（パンチはできない）
+                    bool guard = held && power > 0.5f;
+                    if (guard) { power -= GuardPowerCost * dt; if (k == 0) guardL = true; else guardR = true; }
                     float aim = Mathf.Clamp((k == 0 ? aimL : aimR) + stick.x * ArmAimRate * dt, -0.8f, 0.8f);
                     if (k == 0) aimL = aim; else aimR = aim;
-                    if (pressed && m_Cooldown[i] <= 0f && power >= 4f)
+                    if (!guard && pressed && m_Cooldown[i] <= 0f && power >= 4f)
                     {
                         m_Cooldown[i] = PunchCooldown;
                         power -= 4f;
@@ -395,6 +399,7 @@ public class RobotState : NetworkBehaviour
 
         LegL.Value = legL; LegR.Value = legR;
         AimL.Value = aimL; AimR.Value = aimR; AimHead.Value = aimH;
+        GuardL.Value = guardL; GuardR.Value = guardR;
         Power.Value = Mathf.Clamp(power, 0f, MaxPower);
         Hull.Value = Mathf.Clamp(hull, 0f, MaxHull);
 
@@ -422,7 +427,6 @@ public class RobotState : NetworkBehaviour
 
         UpdateBolts(dt);
         UpdateBoss(dt);
-        UpdateShots(dt);
 
         if (Hull.Value <= 0f) GameState.Value = Lost;
     }
@@ -532,8 +536,7 @@ public class RobotState : NetworkBehaviour
 
     /// <summary>
     /// 敵はゆっくりタイタンに近づき、近くまで来たら止まって攻撃する。
-    /// - 振り下ろし（近いとき）：長く振りかぶってから腕を振り下ろす。離れればよけられる
-    /// - 光弾の連射（遠いとき）：口から光の弾を4発
+    /// - 振り下ろし（近いとき）：長く振りかぶってから腕を振り下ろす。離れるか、腕でガードすれば防げる
     /// - 足踏み（たまに）：地面を揺らして装甲を少し削る
     /// </summary>
     void UpdateBoss(float dt)
@@ -558,40 +561,29 @@ public class RobotState : NetworkBehaviour
                         m_BossHitDone = true;
                         if (dist < BossReach)
                         {
-                            RobotHit(14f);
-                            if (Random.value < 0.5f) StartFire();
+                            float g = GuardAmount();
+                            RobotHit(SwipeDamage * (1f - g), g);
+                            // 両腕でガードしていれば、火事や配線切れは起きない
+                            if (Random.value < 0.25f * (1f - g)) StartFire();
                             // 爪が肩に当たって、片方の腕の配線が切れることがある
-                            if (Random.value < 0.45f) BreakTask(Random.value < 0.5f ? Tasks.WiresL : Tasks.WiresR);
+                            if (Random.value < 0.25f * (1f - g)) BreakTask(Random.value < 0.5f ? Tasks.WiresL : Tasks.WiresR);
                         }
                         var tip = bp + new Vector2(Mathf.Sin(BossYaw.Value), Mathf.Cos(BossYaw.Value)) * 22f;
                         BoomFxRpc(new Vector3(tip.x, 8f, tip.y), 2.2f, new Color(1f, 0.4f, 0.6f));
                     }
                     if (m_BossActT >= BossSwipeWindup + 1.2f) EndBossAction();
                     break;
-                case BossBarrage:
-                    m_BossShotT -= dt;
-                    if (m_BossShotsLeft > 0 && m_BossShotT <= 0f)
-                    {
-                        m_BossShotsLeft--;
-                        m_BossShotT = 0.55f;
-                        var mouth = new Vector3(bp.x, 36f, bp.y) + new Vector3(Mathf.Sin(BossYaw.Value), 0, Mathf.Cos(BossYaw.Value)) * 8f;
-                        var target = new Vector3(Pos.Value.x + Random.Range(-4f, 4f), 22f, Pos.Value.y + Random.Range(-4f, 4f));
-                        var v = (target - mouth).normalized * 30f;
-                        m_Shots.Add(new Shot { P = mouth, V = v, Life = 6f });
-                        ShotFxRpc(mouth, v);
-                    }
-                    if (m_BossShotsLeft <= 0 && m_BossShotT <= -0.8f) EndBossAction();
-                    break;
                 case BossStomp:
                     if (!m_BossHitDone && m_BossActT >= 1.4f)
                     {
                         m_BossHitDone = true;
                         BoomFxRpc(new Vector3(bp.x, 1f, bp.y), 3.5f, new Color(0.7f, 0.6f, 0.5f));
-                        if (dist < 70f)
+                        if (dist < StompRange)
                         {
-                            RobotHit(6f);
+                            float g = GuardAmount();
+                            RobotHit(StompDamage * (1f - g * 0.5f), g * 0.5f);   // 足踏みの揺れはガードで半分しか防げない
                             // 地面の揺れで、片方の脚の油圧が切れることがある
-                            if (Random.value < 0.4f) BreakTask(Random.value < 0.5f ? Tasks.GaugeL : Tasks.GaugeR);
+                            if (Random.value < 0.2f) BreakTask(Random.value < 0.5f ? Tasks.GaugeL : Tasks.GaugeR);
                         }
                     }
                     if (m_BossActT >= 2.6f) EndBossAction();
@@ -612,20 +604,19 @@ public class RobotState : NetworkBehaviour
 
         // 攻撃を選ぶ
         m_BossCd -= dt;
-        if (m_BossCd > 0f || dist > 120f) return;
-        int kind = dist < BossReach ? (Random.value < 0.7f ? BossSwipe : BossStomp) : (Random.value < 0.75f ? BossBarrage : BossStomp);
+        // 遠距離の攻撃はしない：近くまで来たときだけ攻撃する
+        if (m_BossCd > 0f || dist > BossReach + 4f) return;
+        int kind = dist < BossReach && Random.value < 0.7f ? BossSwipe : BossStomp;
         BossAction.Value = kind;
         BossActionId.Value++;
         m_BossActT = 0f;
         m_BossHitDone = false;
-        m_BossShotsLeft = 4;
-        m_BossShotT = 0.9f;
     }
 
     void EndBossAction()
     {
         BossAction.Value = BossIdle;
-        m_BossCd = Random.Range(4.5f, 7.5f);
+        m_BossCd = Random.Range(7f, 11f);
     }
 
     void DamageBoss(float dmg)
@@ -641,30 +632,22 @@ public class RobotState : NetworkBehaviour
         GameState.Value = Won;
     }
 
-    void UpdateShots(float dt)
-    {
-        var rp = Pos.Value;
-        for (int s = m_Shots.Count - 1; s >= 0; s--)
-        {
-            var shot = m_Shots[s];
-            shot.P += shot.V * dt;
-            shot.Life -= dt;
-            if (Vector2.Distance(new Vector2(shot.P.x, shot.P.z), rp) < ExteriorWorld.RobotRadius && shot.P.y < 19f * TitanScale)
-            {
-                shot.Life = 0f;
-                RobotHit(5f);
-            }
-            if (shot.P.y < 0f) shot.Life = 0f;
-            if (shot.Life <= 0f) m_Shots.RemoveAt(s); else m_Shots[s] = shot;
-        }
-    }
+    /// <summary>今ガードしている量（腕1本 0.4、両腕 0.8）</summary>
+    float GuardAmount() => ((GuardL.Value ? 1 : 0) + (GuardR.Value ? 1 : 0)) * GuardCut;
 
-    void RobotHit(float dmg)
+    /// <summary>タイタンが攻撃を受けた。guard はガードで防いだ割合（0～1）</summary>
+    void RobotHit(float dmg, float guard = 0f)
     {
         Hull.Value = Mathf.Max(0f, Hull.Value - dmg);
+        if (guard > 0f)
+        {
+            // ガードした腕で受け止めた火花
+            var fp = LocalToWorld(0f, 4f * TitanScale);
+            BoomFxRpc(new Vector3(fp.x, 13f * TitanScale, fp.y), 1.4f, new Color(0.55f, 0.85f, 1f));
+        }
         HitFxRpc();
-        if (Random.value < 0.33f) StartFire();
-        if (Random.value < 0.2f) BreakRandomTask();
+        if (Random.value < 0.2f * (1f - guard)) StartFire();
+        if (Random.value < 0.12f * (1f - guard)) BreakRandomTask();
     }
 
     void StartFire()
