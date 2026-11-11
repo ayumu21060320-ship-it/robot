@@ -1,6 +1,4 @@
-using System.Collections.Generic;
-using System.Net;
-using System.Net.Sockets;
+using System;
 using Unity.Netcode;
 using Unity.Netcode.Transports.UTP;
 using UnityEngine;
@@ -10,7 +8,7 @@ using UnityEngine.InputSystem;
 /// ゲーム全体の入口。シーンに1つだけ置く（メニュー「Robot/ゲームのシーンを作成」で自動配置）。
 /// - 外の世界とロボット内部を組み立てる
 /// - 画面を左右に分ける2台のカメラを用意する（左 = 内部、右 = 外）
-/// - ホスト / 参加 の接続
+/// - 部屋を作る / 部屋番号で参加する（OnlineRooms）。オンラインは試合前に待機室に集まる
 /// - 画面表示（HUD）
 /// </summary>
 public class GameBootstrap : MonoBehaviour
@@ -22,18 +20,16 @@ public class GameBootstrap : MonoBehaviour
     public Material litMaterial;
     public Material unlitMaterial;
 
-    public const int MaxPlayers = 4;
-    const ushort DefaultPort = 7777;
+    public const int MaxPlayers = 6;
 
     Camera m_InteriorCam, m_ExteriorCam;
     InteriorMap.View m_Interior;
     Vector3 m_ExtCamPos, m_ExtCamLook;
     float m_IntSize = 9f;
 
-    string m_Address = "127.0.0.1";
-    string m_Port = DefaultPort.ToString();
+    string m_RoomInput = "";
     string m_Status = "";
-    string m_LanAddresses;
+    bool m_Busy;   // 部屋を作っている・入ろうとしているあいだ
 
     void Awake()
     {
@@ -44,7 +40,6 @@ public class GameBootstrap : MonoBehaviour
         SetupCameras();
         gameObject.AddComponent<TaskUI>();
         gameObject.AddComponent<StationUI>();
-        m_LanAddresses = FindLanAddresses();
 
         RenderSettings.fog = true;
         RenderSettings.fogMode = FogMode.Linear;
@@ -101,7 +96,9 @@ public class GameBootstrap : MonoBehaviour
         float dt = Time.deltaTime;
 
         // 左：自分の操縦士を真上から追いかける。Tab を押している間は内部全体を表示
-        bool overview = Keyboard.current != null && Keyboard.current.tabKey.isPressed;
+        var rsCam = RobotState.Instance;
+        bool inLobby = rsCam != null && rsCam.GameState.Value == RobotState.Lobby;
+        bool overview = !inLobby && Keyboard.current != null && Keyboard.current.tabKey.isPressed;
         var local = CrewPlayer.Local;
         Vector2 focus = overview || local == null ? InteriorMap.Center : local.DisplayPos;
         // 全体図はロボット全体が左半分に収まる大きさ
@@ -130,7 +127,7 @@ public class GameBootstrap : MonoBehaviour
         float k = 1f - Mathf.Exp(-4f * dt);
         m_ExtCamPos = Vector3.Lerp(m_ExtCamPos, pos, k);
         m_ExtCamLook = Vector3.Lerp(m_ExtCamLook, look, k);
-        var shake = Random.insideUnitSphere * RobotVisual.Shake * 0.6f;
+        var shake = UnityEngine.Random.insideUnitSphere * RobotVisual.Shake * 0.6f;
         m_ExteriorCam.transform.position = m_ExtCamPos + shake;
         m_ExteriorCam.transform.LookAt(m_ExtCamLook);
     }
@@ -167,8 +164,8 @@ public class GameBootstrap : MonoBehaviour
             var rc = p < 0.2f && Mathf.Sin(Time.time * 10f) > 0f ? Prims.Hex("#ff6a4a") : Color.Lerp(Prims.Hex("#5a4a2a"), Prims.Hex("#ffd23f"), p);
             m_Interior.ReactorCore.color = rc;
 
-            // ホストは R で再出撃
-            if (networkManager.IsServer && rs.GameState.Value != RobotState.Playing &&
+            // ホストは R で再出撃（オンラインなら待機室へ戻る）
+            if (networkManager.IsServer && rs.GameState.Value != RobotState.Playing && rs.GameState.Value != RobotState.Lobby &&
                 Keyboard.current != null && Keyboard.current.rKey.wasPressedThisFrame)
                 rs.RestartRpc();
         }
@@ -182,33 +179,62 @@ public class GameBootstrap : MonoBehaviour
         if (!networkManager.NetworkConfig.Prefabs.Contains(crewPrefab)) networkManager.AddNetworkPrefab(crewPrefab);
     }
 
-    bool TryGetPort(out ushort port)
+    /// <summary>1人で遊ぶ（待機室なしで、すぐ試合）</summary>
+    void StartSolo()
     {
-        if (ushort.TryParse(m_Port, out port)) return true;
-        m_Status = "ポート番号は 1～65535 の数字で入力してください。";
-        return false;
-    }
-
-    void StartHost()
-    {
-        if (!TryGetPort(out var port)) return;
         RegisterPrefabs();
-        if (networkManager.NetworkConfig.NetworkTransport is UnityTransport t) t.SetConnectionData("127.0.0.1", port, "0.0.0.0");
-        m_Status = networkManager.StartHost() ? "" : $"ホストを始められませんでした。ポート {port} がほかのアプリで使われていないか確認してください。";
+        RobotState.UseLobby = false;
+        OnlineRooms.Clear();
+#if UNITY_WEBGL && !UNITY_EDITOR && HAS_NETCODE
+        // ブラウザは自分でホストを開けないので、1人でも Relay の部屋を作る
+        CreateRoom(false);
+#else
+        m_Status = networkManager.StartHost() ? "" : "始められませんでした。";
+#endif
     }
 
-    void StartClient()
+    /// <summary>部屋を作ってホストになる。lobby = true なら待機室から始める</summary>
+    async void CreateRoom(bool lobby)
     {
-        if (!TryGetPort(out var port)) return;
-        string addr = m_Address.Trim();
-        if (!IPAddress.TryParse(addr, out _))
+        if (m_Busy) return;
+        m_Busy = true;
+        m_Status = "部屋を作っています…";
+        RegisterPrefabs();
+        RobotState.UseLobby = lobby;
+        try
         {
-            m_Status = "IPアドレスは 192.168.1.10 のような数字の形で入力してください。";
-            return;
+            await OnlineRooms.CreateRoom(networkManager, MaxPlayers);
+            m_Status = "";
         }
+        catch (Exception e)
+        {
+            Debug.LogException(e);
+            m_Status = "部屋を作れませんでした：" + OnlineRooms.Explain(e, false);
+            if (networkManager.IsListening) networkManager.Shutdown();
+        }
+        m_Busy = false;
+    }
+
+    /// <summary>部屋番号で部屋に入る</summary>
+    async void JoinRoom()
+    {
+        if (m_Busy) return;
+        string code = OnlineRooms.Normalize(m_RoomInput);
+        if (code.Length < 4) { m_Status = "部屋番号（6文字の英数字）を入力してください。"; return; }
+        m_Busy = true;
+        m_Status = $"部屋 {code} に入っています…";
         RegisterPrefabs();
-        if (networkManager.NetworkConfig.NetworkTransport is UnityTransport t) t.SetConnectionData(addr, port);
-        m_Status = networkManager.StartClient() ? $"{addr}:{port} に接続しています…" : "接続を始められませんでした。";
+        try
+        {
+            await OnlineRooms.JoinRoom(networkManager, code);
+        }
+        catch (Exception e)
+        {
+            Debug.LogException(e);
+            m_Status = "部屋に入れませんでした：" + OnlineRooms.Explain(e, true);
+            if (networkManager.IsListening) networkManager.Shutdown();
+        }
+        m_Busy = false;
     }
 
     void OnServerStarted() => EnsureRobot();
@@ -227,7 +253,7 @@ public class GameBootstrap : MonoBehaviour
             EnsureRobot();
             if (networkManager.ConnectedClientsList.Count > MaxPlayers)
             {
-                networkManager.DisconnectClient(clientId, "満員です（最大4人）");
+                networkManager.DisconnectClient(clientId, $"満員です（最大{MaxPlayers}人）");
                 return;
             }
             var go = Instantiate(crewPrefab);
@@ -239,23 +265,18 @@ public class GameBootstrap : MonoBehaviour
     void OnClientDisconnected(ulong clientId)
     {
         if (networkManager.IsServer && clientId != NetworkManager.ServerClientId) return;
+        OnlineRooms.Clear();
         if (!networkManager.IsServer)
         {
             string reason = networkManager.DisconnectReason;
-            m_Status = string.IsNullOrEmpty(reason) ? "接続が切れました。アドレスとポート、ホストが起動しているかを確認してください。" : "接続が切れました：" + reason;
+            m_Status = string.IsNullOrEmpty(reason) ? "部屋から切断されました（部屋を作った人が抜けると部屋はなくなります）。" : "切断されました：" + reason;
         }
     }
 
-    static string FindLanAddresses()
+    void Leave()
     {
-        var list = new List<string>();
-        try
-        {
-            foreach (var a in Dns.GetHostEntry(Dns.GetHostName()).AddressList)
-                if (a.AddressFamily == AddressFamily.InterNetwork && !IPAddress.IsLoopback(a)) list.Add(a.ToString());
-        }
-        catch (System.Exception) { }
-        return list.Count > 0 ? string.Join("  /  ", list) : "（取得できませんでした）";
+        networkManager.Shutdown();
+        OnlineRooms.Clear();
     }
 
     // ================================================================ 画面表示（仮のUI。あとで uGUI / UI Toolkit に置き換え予定）
@@ -283,6 +304,7 @@ public class GameBootstrap : MonoBehaviour
 
     void OnGUI()
     {
+        UIDraw.ApplyFont();
         EnsureStyles();
         bool connected = networkManager.IsClient || networkManager.IsServer;
         if (!connected)
@@ -290,13 +312,23 @@ public class GameBootstrap : MonoBehaviour
             DrawMenu();
             return;
         }
+        var rs = RobotState.Instance;
+        bool lobby = rs != null && rs.GameState.Value == RobotState.Lobby;
         DrawSplitLine();
         DrawInteriorLabels();
-        DrawMinimap();
-        DrawTaskList();
-        DrawStatus();
+        if (lobby)
+        {
+            DrawLobby();
+        }
+        else
+        {
+            DrawMinimap();
+            DrawTaskList();
+            DrawStatus();
+            DrawEnd();
+        }
         DrawPrompt();
-        DrawEnd();
+        DrawTeleportFlash();
         if (RobotVisual.HitFlash > 0f) DrawRect(new Rect(Screen.width * 0.5f, 0, Screen.width * 0.5f, Screen.height), new Color(1f, 0.2f, 0.1f, RobotVisual.HitFlash * 0.25f));
     }
 
@@ -311,49 +343,140 @@ public class GameBootstrap : MonoBehaviour
     void DrawMenu()
     {
         float s = m_Scale;
-        float w = Mathf.Min(620f * s, Screen.width - 40f), h = 560f * s;
+        float w = Mathf.Min(640f * s, Screen.width - 40f), h = Mathf.Min(600f * s, Screen.height - 40f);
         var r = new Rect((Screen.width - w) * 0.5f, (Screen.height - h) * 0.5f, w, h);
         DrawRect(r, new Color(0.06f, 0.08f, 0.1f, 0.92f));
         GUILayout.BeginArea(new Rect(r.x + 24 * s, r.y + 20 * s, r.width - 48 * s, r.height - 40 * s));
         GUILayout.Label("タイタンクルー", m_Title);
         GUILayout.Label("巨大ロボットの中を走り回り、脚・腕・頭部砲・動力炉の席に乗り込んで、1体のロボットを動かそう。巨大な敵を倒せば勝ち。", m_Label);
         GUILayout.Space(12 * s);
+        bool old = GUI.enabled;
+        GUI.enabled = !m_Busy;
 
-#if !HAS_NETCODE
-        // いまは1人用。オンライン協力は Netcode を入れると有効になる（HAS_NETCODE）
-        GUILayout.Label("1人で全部の席を受け持つ。脚のレバーは降りても残るので、歩かせたまま腕や頭部砲へ走ろう。", m_Small);
-        GUILayout.Space(16 * s);
-        if (GUILayout.Button("スタート", m_Button, GUILayout.Width(240 * s), GUILayout.Height(48 * s))) StartHost();
-        GUILayout.Space(10 * s);
+        if (OnlineRooms.Available)
+        {
+            GUILayout.Label($"<b>みんなで遊ぶ</b>（最大{MaxPlayers}人）", m_Label);
+            GUILayout.BeginHorizontal();
+            if (GUILayout.Button("部屋を作る", m_Button, GUILayout.Width(240 * s), GUILayout.Height(44 * s))) CreateRoom(true);
+            GUILayout.Label("部屋番号がもらえるので、友だちに教えよう", m_Small);
+            GUILayout.EndHorizontal();
+            GUILayout.Space(10 * s);
+            GUILayout.BeginHorizontal();
+            GUILayout.Label("部屋番号", m_Label, GUILayout.Width(90 * s));
+            m_RoomInput = OnlineRooms.Normalize(GUILayout.TextField(m_RoomInput, 8, m_Field, GUILayout.Width(150 * s), GUILayout.Height(40 * s)));
+            GUILayout.Space(10 * s);
+            if (GUILayout.Button("参加する", m_Button, GUILayout.Width(160 * s), GUILayout.Height(40 * s))) JoinRoom();
+            GUILayout.EndHorizontal();
+            GUILayout.Space(16 * s);
+        }
+        else
+        {
+#if HAS_NETCODE
+            GUILayout.Label("<color=#93a6ae>部屋番号でみんなと遊ぶには、Multiplayer Services パッケージを入れて Unity Cloud にリンクしてください（README の「オンラインの準備」）。</color>", m_Small);
 #else
-        GUILayout.Label("<b>ホストになる</b>（部屋を作る人）", m_Label);
-        GUILayout.BeginHorizontal();
-        GUILayout.Label("ポート", m_Label, GUILayout.Width(80 * s));
-        m_Port = GUILayout.TextField(m_Port, 5, m_Field, GUILayout.Width(110 * s));
-        GUILayout.FlexibleSpace();
-        if (GUILayout.Button("ホストとして始める", m_Button, GUILayout.Width(240 * s), GUILayout.Height(40 * s))) StartHost();
-        GUILayout.EndHorizontal();
-        GUILayout.Label("このPCのアドレス： " + m_LanAddresses, m_Small);
-        GUILayout.Space(14 * s);
-
-        GUILayout.Label("<b>参加する</b>（ホストのアドレスを入力）", m_Label);
-        GUILayout.BeginHorizontal();
-        GUILayout.Label("アドレス", m_Label, GUILayout.Width(80 * s));
-        m_Address = GUILayout.TextField(m_Address, 45, m_Field, GUILayout.Width(220 * s));
-        GUILayout.FlexibleSpace();
-        if (GUILayout.Button("参加する", m_Button, GUILayout.Width(240 * s), GUILayout.Height(40 * s))) StartClient();
-        GUILayout.EndHorizontal();
-        GUILayout.Space(10 * s);
+            GUILayout.Label("<color=#93a6ae>いまは1人用。部屋番号でみんなと遊ぶには、Netcode と Multiplayer Services のパッケージが必要です（README の「オンラインの準備」）。</color>", m_Small);
 #endif
+            GUILayout.Space(10 * s);
+        }
+
+        GUILayout.Label("<b>1人で遊ぶ</b>　全部の席を1人で受け持つ。脚のレバーは降りても残る", m_Label);
+        if (GUILayout.Button("1人で出撃", m_Button, GUILayout.Width(240 * s), GUILayout.Height(40 * s))) StartSolo();
+        GUI.enabled = old;
+        GUILayout.Space(10 * s);
 
         if (!string.IsNullOrEmpty(m_Status)) GUILayout.Label("<color=#ffb000>" + m_Status + "</color>", m_Label);
         GUILayout.FlexibleSpace();
-#if HAS_NETCODE
-        GUILayout.Label("操作：A/D で足場を歩く　はしごの前で W/S で登り降り　E で席に乗る・降りる　Space でアクション　Tab で内部の全体図\n同じPCで試すときはアドレス 127.0.0.1 のまま。ネット越しに遊ぶ招待コード方式（Relay）は次の段階で追加します。", m_Small);
-#else
         GUILayout.Label("操作：A/D で足場を歩く　はしごの前で W/S で登り降り　E で席に乗る・降りる　Space でアクション　Tab で内部の全体図", m_Small);
-#endif
         GUILayout.EndArea();
+    }
+
+    // ================================================================ 待機室
+
+    /// <summary>
+    /// 試合前の待機室の画面。左上にルール、下に部屋番号と人数、ホストには「試合開始」ボタン。
+    /// 右半分（外）には出撃前の格納庫と、集まった乗組員の一覧を出す。
+    /// </summary>
+    void DrawLobby()
+    {
+        var rs = RobotState.Instance;
+        float s = m_Scale;
+        float half = Screen.width * 0.5f;
+        int n = CrewPlayer.All.Count;
+
+        // ---- 左上：ルール
+        var rules = new GUIStyle(m_Small) { wordWrap = false };
+        rules.normal.textColor = new Color(0.86f, 0.9f, 0.92f);
+        var rr = new Rect(12 * s, 34 * s, 270 * s, 150 * s);
+        DrawRect(rr, new Color(0.04f, 0.06f, 0.07f, 0.7f));
+        GUI.Label(new Rect(rr.x + 10 * s, rr.y + 6 * s, rr.width, rr.height),
+            "<b>出撃の設定</b>\n" +
+            $"最大人数：{MaxPlayers}人\n" +
+            $"操縦席：{Stations.Count}（脚2・腕2・頭部砲・動力炉）\n" +
+            $"敵の体力：{RobotState.BossMaxHp:0}\n" +
+            "敵の遠距離攻撃：なし\n" +
+            "途中参加：できる（ロボットの中に出る）", rules);
+
+        // ---- 下：部屋番号・人数・試合開始
+        float bw = Mathf.Min(half - 24 * s, 560 * s), bh = 64 * s;
+        var bar = new Rect((half - bw) * 0.5f, Screen.height - bh - 104 * s, bw, bh);
+        DrawRect(bar, new Color(0.04f, 0.06f, 0.07f, 0.85f));
+        string code = OnlineRooms.RoomCode;
+        GUI.Label(new Rect(bar.x + 14 * s, bar.y + 4 * s, 120 * s, 20 * s), "部屋番号", m_Small);
+        var codeStyle = new GUIStyle(m_Big) { alignment = TextAnchor.MiddleLeft, fontSize = Mathf.RoundToInt(30 * s) };
+        codeStyle.normal.textColor = Color.white;
+        GUI.Label(new Rect(bar.x + 14 * s, bar.y + 22 * s, 190 * s, 40 * s), string.IsNullOrEmpty(code) ? "－" : code, codeStyle);
+        var countStyle = new GUIStyle(m_Big) { fontSize = Mathf.RoundToInt(28 * s) };
+        countStyle.normal.textColor = Prims.Hex("#7dff6a");
+        GUI.Label(new Rect(bar.x + 200 * s, bar.y + 8 * s, 110 * s, 48 * s), $"{n}/{MaxPlayers}", countStyle);
+        var btn = new Rect(bar.xMax - 200 * s, bar.y + 8 * s, 186 * s, 48 * s);
+        if (networkManager.IsServer)
+        {
+            var bs = new GUIStyle(m_Button) { fontSize = Mathf.RoundToInt(20 * s) };
+            var oldc = GUI.backgroundColor;
+            GUI.backgroundColor = Prims.Hex("#4cd964");
+            if (GUI.Button(btn, "試合開始", bs) && rs != null) rs.StartMatchRpc();
+            GUI.backgroundColor = oldc;
+        }
+        else
+        {
+            var wait = new GUIStyle(m_Small) { alignment = TextAnchor.MiddleCenter };
+            GUI.Label(btn, "ホストが試合を\n始めるのを待っています", wait);
+        }
+
+        // ---- 右半分：出撃準備中と、乗組員の一覧
+        DrawRect(new Rect(half, 0, half, Screen.height), new Color(0.02f, 0.03f, 0.04f, 0.45f));
+        m_Big.normal.textColor = Prims.Hex("#ffb000");
+        GUI.Label(new Rect(half, Screen.height * 0.12f, half, 50 * s), "出撃準備中", m_Big);
+        var listStyle = new GUIStyle(m_Label) { alignment = TextAnchor.MiddleLeft };
+        float lw = 280 * s, ly = Screen.height * 0.12f + 70 * s;
+        float lx = half + (half - lw) * 0.5f;
+        foreach (var p in CrewPlayer.All)
+        {
+            var row = new Rect(lx, ly, lw, 34 * s);
+            DrawRect(row, new Color(0.06f, 0.08f, 0.1f, 0.85f));
+            DrawRect(new Rect(row.x, row.y, 10 * s, row.height), p.Color);
+            bool host = p.OwnerClientId == NetworkManager.ServerClientId;
+            bool me = p == CrewPlayer.Local;
+            GUI.Label(new Rect(row.x + 20 * s, row.y, row.width - 24 * s, row.height),
+                $"<b>{p.Label}</b>{(host ? "　<color=#ffb000>ホスト</color>" : "")}{(me ? "　<color=#93a6ae>（あなた）</color>" : "")}", listStyle);
+            ly += 40 * s;
+        }
+        var hint = new GUIStyle(m_Small) { alignment = TextAnchor.UpperCenter };
+        GUI.Label(new Rect(half + 20 * s, ly + 10 * s, half - 40 * s, 60 * s),
+            networkManager.IsServer ? "全員そろったら「試合開始」。みんなロボットの中心へ転送される" : "部屋番号を友だちに教えて、いっしょに乗り込もう", hint);
+
+        if (GUI.Button(new Rect(Screen.width - 130 * s, 10 * s, 116 * s, 30 * s), "部屋を出る", m_Button)) Leave();
+    }
+
+    /// <summary>転送された直後に左半分を白く光らせる</summary>
+    void DrawTeleportFlash()
+    {
+        float t = Time.time - CrewPlayer.TeleportTime;
+        if (t < 0f || t > 0.9f) return;
+        float a = 1f - t / 0.9f;
+        DrawRect(new Rect(0, 0, Screen.width * 0.5f, Screen.height), new Color(0.75f, 0.95f, 1f, a * 0.85f));
+        m_Big.normal.textColor = new Color(0.1f, 0.3f, 0.4f, a);
+        GUI.Label(new Rect(0, Screen.height * 0.4f, Screen.width * 0.5f, 60 * m_Scale), "転送！", m_Big);
     }
 
     void DrawSplitLine()
@@ -437,13 +560,15 @@ public class GameBootstrap : MonoBehaviour
         GUI.color = oldc;
 
         // 足場とはしご
-        foreach (var c in InteriorMap.Catwalks)
+        for (int ci = 0; ci < InteriorMap.RobotCatwalks; ci++)
         {
+            var c = InteriorMap.Catwalks[ci];
             var a0 = ToMap(new Vector2(c.X0, c.Y)); var a1 = ToMap(new Vector2(c.X1, c.Y));
             DrawRect(new Rect(a0.x, a0.y - 1f, a1.x - a0.x, Mathf.Max(2f, 2f * s)), new Color(0.75f, 0.8f, 0.85f, 0.9f));
         }
-        foreach (var l in InteriorMap.Ladders)
+        for (int li = 0; li < InteriorMap.RobotLadders; li++)
         {
+            var l = InteriorMap.Ladders[li];
             var b0 = ToMap(new Vector2(l.X, l.Y1)); var b1 = ToMap(new Vector2(l.X, l.Y0));
             DrawRect(new Rect(b0.x - 1f, b0.y, Mathf.Max(2f, 2f * s), b1.y - b0.y), new Color(0.95f, 0.71f, 0.19f, 0.9f));
         }
@@ -595,12 +720,8 @@ public class GameBootstrap : MonoBehaviour
             }
         }
 
-#if HAS_NETCODE
-        const string leave = "切断";
-#else
-        const string leave = "タイトルへ";
-#endif
-        if (GUI.Button(new Rect(Screen.width - 130 * s, 10 * s, 116 * s, 30 * s), leave, m_Button)) networkManager.Shutdown();
+        string leave = string.IsNullOrEmpty(OnlineRooms.RoomCode) ? "タイトルへ" : "部屋を出る";
+        if (GUI.Button(new Rect(Screen.width - 130 * s, 10 * s, 116 * s, 30 * s), leave, m_Button)) Leave();
     }
 
     void DrawPrompt()
@@ -645,6 +766,11 @@ public class GameBootstrap : MonoBehaviour
             hint = rs.TaskOk(me.NearTask) ? "<color=#93a6ae>正常に動いている</color>"
                  : $"<color=#ff8a6a>故障中（{t.Effect}）</color>　E で修理する";
         }
+        else if (rs.GameState.Value == RobotState.Lobby)
+        {
+            where = "待機室";
+            hint = "A/D で歩く・はしごは W/S。全員そろったらホストが「試合開始」を押す";
+        }
         else
         {
             where = InteriorMap.AreaName(me.Pos.Value);
@@ -669,7 +795,8 @@ public class GameBootstrap : MonoBehaviour
         GUI.Label(new Rect(0, Screen.height * 0.36f, Screen.width, 60 * s), won ? "巨大な敵を倒した！" : "タイタン大破", m_Big);
         int t = Mathf.FloorToInt(rs.Elapsed.Value);
         var info = $"スコア {rs.Score.Value}　時間 {t / 60}:{t % 60:00}\n" +
-                   (networkManager.IsServer ? "R キーでもう一度出撃" : "ホストが再出撃するのを待っています");
+                   (networkManager.IsServer ? (RobotState.UseLobby ? "R キーで待機室に戻る" : "R キーでもう一度出撃")
+                                            : "ホストが待機室に戻すのを待っています");
         var style = new GUIStyle(m_Label) { alignment = TextAnchor.MiddleCenter };
         GUI.Label(new Rect(0, Screen.height * 0.36f + 70 * s, Screen.width, 60 * s), info, style);
     }

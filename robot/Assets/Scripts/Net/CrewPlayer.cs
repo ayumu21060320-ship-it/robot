@@ -11,7 +11,10 @@ public class CrewPlayer : NetworkBehaviour
 {
     public static CrewPlayer Local { get; private set; }
     public static readonly List<CrewPlayer> All = new List<CrewPlayer>();
-    public static readonly Color[] Colors = { Prims.Hex("#3fb6ff"), Prims.Hex("#ff5a8a"), Prims.Hex("#7dff6a"), Prims.Hex("#c08bff") };
+    public static readonly Color[] Colors = { Prims.Hex("#3fb6ff"), Prims.Hex("#ff5a8a"), Prims.Hex("#7dff6a"), Prims.Hex("#c08bff"), Prims.Hex("#ff9a3c"), Prims.Hex("#ffe14a") };
+
+    /// <summary>自分が最後に転送された時刻（画面を白く光らせる演出に使う）</summary>
+    public static float TeleportTime = -10f;
 
     const float Speed = 6f;        // 足場を歩く速さ
     const float ClimbSpeed = 4.5f; // はしごを登る速さ
@@ -58,7 +61,9 @@ public class CrewPlayer : NetworkBehaviour
         if (IsOwner)
         {
             Local = this;
-            Pos.Value = InteriorMap.Spawn + new Vector2(((int)(OwnerClientId % 4) - 1.5f) * 1.2f, 0f);
+            var rs = RobotState.Instance;
+            bool lobby = rs != null && rs.GameState.Value == RobotState.Lobby;
+            Pos.Value = lobby ? InteriorMap.LobbySpawn((int)OwnerClientId) : InteriorMap.CenterSpawn((int)OwnerClientId);
         }
         DisplayPos = Pos.Value;
         BuildAvatar();
@@ -184,6 +189,20 @@ public class CrewPlayer : NetworkBehaviour
         return p;
     }
 
+    void Teleport(Vector2 to)
+    {
+        m_Ladder = -1;
+        m_FallSpeed = 0f;
+        m_DuctT = 0f;
+        m_DuctTo = -1;
+        if (InDuct.Value) InDuct.Value = false;
+        if (Stick.Value != Vector2.zero) Stick.Value = Vector2.zero;
+        if (ActHeld.Value) ActHeld.Value = false;
+        Pos.Value = to;
+        DisplayPos = to;
+        TeleportTime = Time.time;
+    }
+
     void OwnerUpdate()
     {
         var kb = Keyboard.current;
@@ -214,6 +233,18 @@ public class CrewPlayer : NetworkBehaviour
         var robot = RobotState.Instance;
         bool playing = robot != null && robot.GameState.Value == RobotState.Playing;
         int st = Station.Value;
+
+        // 待機室 ⇔ ロボットの中：試合の状態が変わったら転送する（途中参加でも正しい側へ）
+        if (robot != null)
+        {
+            bool wantLobby = robot.GameState.Value == RobotState.Lobby;
+            if (wantLobby != InteriorMap.InLobby(Pos.Value))
+            {
+                Teleport(wantLobby ? InteriorMap.LobbySpawn(Slot.Value) : InteriorMap.CenterSpawn(Slot.Value));
+                if (TaskUI.IsOpen) TaskUI.Instance.Close();
+                return;
+            }
+        }
 
         // ミニゲーム中は歩かない（ミニゲームの操作は TaskUI が読む）
         if (TaskUI.IsOpen)

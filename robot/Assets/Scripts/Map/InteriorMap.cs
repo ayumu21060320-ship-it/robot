@@ -33,6 +33,14 @@ public static class InteriorMap
 
     static Catwalk C(float x0, float x1, float y) => new Catwalk { X0 = x0 * Scale, X1 = x1 * Scale, Y = y * Scale };
     static Ladder L(float x, float y0, float y1) => new Ladder { X = x * Scale, Y0 = y0 * Scale, Y1 = y1 * Scale };
+    // 待機室の足場とはしご（こちらはメートルでそのまま書く）
+    static Catwalk Deck(float x0, float x1, float y) => new Catwalk { X0 = x0, X1 = x1, Y = y };
+    static Ladder Rung(float x, float y0, float y1) => new Ladder { X = x, Y0 = y0, Y1 = y1 };
+
+    /// <summary>ロボットの中の足場の数（Catwalks の先頭から。残りは待機室）</summary>
+    public const int RobotCatwalks = 12;
+    /// <summary>ロボットの中のはしごの数（Ladders の先頭から。残りは待機室）</summary>
+    public const int RobotLadders = 5;
 
     public static readonly Catwalk[] Catwalks =
     {
@@ -48,6 +56,9 @@ public static class InteriorMap
         C(21.4f, 27.8f, 4.6f),    // 右すね
         C(9.0f, 18.6f, -10.8f),   // 左足
         C(21.4f, 31.0f, -10.8f),  // 右足
+        // ---- ここから待機室（ロボットから離れた場所にある、出撃前に集まる部屋）
+        Deck(100.4f, 123.6f, 0f),  // 待機室の床
+        Deck(100.4f, 109.2f, 5.2f), // 待機室の中二階（座席）
     };
 
     public static readonly Ladder[] Ladders =
@@ -57,9 +68,24 @@ public static class InteriorMap
         L(33.6f, 17.6f, 41.5f),   // 右肩 → 右手のひら
         L(15.5f, -10.8f, 27.4f),  // 腰 → 左もも → ひざ → 左すね → 足首 → 左足
         L(24.5f, -10.8f, 27.4f),  // 腰 → 右足
+        Rung(108.6f, 0f, 5.2f),   // 待機室：床 → 中二階
     };
 
     public static readonly Vector2 Spawn = new Vector2(24f, 35.6f) * Scale;
+
+    /// <summary>試合開始で転送される場所（ロボットの中心、胸の下の段）。番号ごとに少しずらす</summary>
+    public static Vector2 CenterSpawn(int i) => new Vector2((18.6f + (i % 6) * 1.2f) * Scale, 35.6f * Scale);
+
+    // ------------------------------------------------------------------ 待機室
+
+    /// <summary>待機室の絵が覆う範囲（メートル）。tools/art/lobby_room.py の X0, X1, Y0, Y1 と同じ</summary>
+    public static readonly Rect LobbyRect = Rect.MinMaxRect(98f, -2f, 126f, 12f);
+    /// <summary>待機室の中にいるか</summary>
+    public static bool InLobby(Vector2 p) => LobbyRect.Contains(p);
+    /// <summary>待機室で立つ位置（番号ごとに少しずらす）</summary>
+    public static Vector2 LobbySpawn(int i) => new Vector2(112f + (i % 6) * 1.4f, 0f);
+    /// <summary>待機室を映すときのカメラの中心</summary>
+    public static Vector2 LobbyCenter => new Vector2(112f, 4.6f);
 
     /// <summary>動力炉の本体の位置（足元、メートル）</summary>
     public static readonly Vector2 ReactorPos = new Vector2(17.2f, 35.6f) * Scale;
@@ -191,6 +217,7 @@ public static class InteriorMap
         Art.Place(root, "robot_front", pos + new Vector3(0, 0.05f, 0), OrderFrontCable, null, "手前のケーブル");
 
         BuildCrewLayer(root, v);
+        BuildLobby(root);
         return v;
     }
 
@@ -259,6 +286,26 @@ public static class InteriorMap
             var alert = Art.Place(root, "alert", new Vector3(p.x, 0.03f, p.y + 1.2f), OrderFrontCable + 100, null, t.Name + " 故障");
             alert.gameObject.SetActive(false);
             v.TaskAlerts[i] = alert;
+        }
+    }
+
+    // ---------------- 待機室：背景の絵（tools/art/lobby_room.py）と、置き物
+
+    static void BuildLobby(Transform root)
+    {
+        var c = LobbyRect.center;
+        Art.Place(root, "robot_lobby", new Vector3(c.x, -0.1f, c.y), OrderCavity, null, "待機室");
+        (string sprite, float x, float y, float scale)[] props =
+        {
+            ("crate", 103.4f, 0f, 0.85f), ("crate", 104.6f, 0f, 0.85f), ("crate", 104.0f, 0.95f, 0.85f),
+            ("monitors", 116.4f, 0f, 0.55f), ("tanks", 119.0f, 0f, 0.6f), ("machine", 107.6f, 5.2f, 0.5f),
+        };
+        foreach (var (sprite, x, y, scale) in props)
+        {
+            var sp = Art.Get(sprite);
+            float half = sp.rect.height / Art.PixelsPerUnit * 0.5f * scale;
+            var r = Art.Place(root, sprite, new Vector3(x, 0.015f, y + half), OrderProp - 5, null, "待機室 " + sprite);
+            r.transform.localScale = Vector3.one * scale;
         }
     }
 

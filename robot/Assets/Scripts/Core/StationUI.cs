@@ -225,6 +225,7 @@ public class StationUI : MonoBehaviour
     void OnGUI()
     {
         if (!Active || TaskUI.IsOpen) return;
+        UIDraw.ApplyFont();
         var rs = RobotState.Instance;
         if (rs == null) return;
         GUI.depth = -5;
