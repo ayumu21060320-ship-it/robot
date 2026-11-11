@@ -16,56 +16,67 @@ Unity プロジェクト本体は `robot/` フォルダにあります。
 
 ## オンラインで遊ぶ（部屋番号）
 
-1. だれか1人が **部屋を作る** を押す → 画面の下に4けたの **部屋番号**（例：`4821`）が出る
+1. だれか1人が **部屋を作る** を押す → 画面の下に **部屋番号** が出る
 2. ほかの人はタイトル画面で部屋番号を入れて **参加する**
 3. 試合が始まるまでは、みんな **待機室** にいる（歩いたり、はしごで中二階に登ったりできる）
 4. 部屋を作った人（ホスト）が **試合開始** を押すと、全員が **ロボットの中心（胸の下の段）へ転送** される
 5. 勝っても負けても、ホストが R を押すと待機室に戻る。途中から入った人はロボットの中に出る
 
-通信は **自分で用意したサーバー**（`server/`）を通す。ゲームの計算は部屋を作った人のブラウザ（またはPC）がして、
-サーバーは部屋番号ごとにデータを中継するだけ。部屋を作った人が抜けると、その部屋はなくなる。
-Unity のアカウントや追加のパッケージ（Relay など）はいらない。
+ゲームの計算は部屋を作った人のブラウザ（またはPC）がする。部屋を作った人が抜けると、その部屋はなくなる。
 
-### サーバー（server/）
+つなぎ方は2通りあり、入っているパッケージで自動で決まる（`Assets/Scripts/Net/OnlineRooms.cs`）。
 
-Node.js（18 以上）で動く。1つのサーバーで **Web版のゲームを配る** のと **部屋番号の中継** の両方をする。
+| | Unity Relay（ふつうはこちら） | 自分のサーバー（予備） |
+|---|---|---|
+| 使うとき | Multiplayer Services 2.4.1 が入っている | Multiplayer Services が入っていない |
+| 部屋番号 | 6文字の英数字（例：`K7M2QX`） | 4けたの数字（例：`4821`） |
+| サーバー | いらない（Unity が中継する） | `server/`（Node.js）を動かす |
+| Web版の公開 | GitHub Pages に置くだけ | `server` ごとサーバーに置く |
 
-    cd server
-    npm install
-    npm start          # http://localhost:8080 で起動（PORT 環境変数で変えられる）
-    npm test           # 部屋を作る・入る・中継・満員・抜ける の動作確認
+将棋のゲーム（syougi / syougi-web）と同じ、**Unity Relay ＋ GitHub Pages** がおすすめ。
 
-- Web版：`Robot → Web版をビルド` で `server/public` に書き出される。サーバーを起動してそのアドレスを開くと遊べて、
-  部屋番号の通信も同じサーバーに自動でつながる
-- エディタ・PC版：タイトル画面の **サーバー** の欄に URL を入れる（自分のPCなら `ws://localhost:8080/ws` のまま。
-  公開したサーバーなら `my-titan.onrender.com` のように入れれば `wss://…/ws` に直る）
-- 公開するとき：`server` フォルダをまるごと（`public` も含めて）Node.js が動くサーバーにアップロードして `npm start`。
-  WebSocket が使えるところならどこでもよい（Render・Railway・VPS・自分のPC など）。https で公開すると通信も自動で wss になる
-  - `server/public` と `server/node_modules` は `.gitignore` に入れてある。GitHub と連携して公開するサービスを使うときは、
-    `.gitignore` の `server/public/` の行を消して、ビルドしたゲームも push する
-- 通信のきまり（部屋を作る・入る・データの形）は `server/server.js` の先頭に書いてある
+### オンラインの準備（最初に1回だけ）
 
-### オンラインの準備（Unity 側）
+学校のネットワークでは Unity のパッケージが取れないことがあるので、**家など制限のない回線で**やる
+（将棋のゲームを同じPCで開いたことがあれば、パッケージがPCに残っていて学校でも入ることがある）。
 
-1. `Packages/manifest.json` の **Netcode for GameObjects** が入っていればよい（入ると `HAS_NETCODE` が定義され、`Assets/Scripts/Offline/` の代役は使われなくなる）
-   - 学校のネットワークでは Unity のパッケージが取れないことがあるので、最初の1回は家など制限のない回線で開く
-2. メニュー **Robot → ゲームのシーンを作成** をもう一度押す（シーンとプレハブを本物の Netcode 用に作り直す。これをしないと NetworkManager が「Missing Script」になる）
-3. `server` を起動して、エディタで「部屋を作る」、Web版かもう1つのエディタ（ビルド）で部屋番号を入れて「参加する」
+1. Unity でプロジェクトを開くと、`Packages/manifest.json` に入れた **Netcode for GameObjects** と **Multiplayer Services 2.4.1** が入る
+   - 入ると `HAS_NETCODE` と `HAS_RELAY` が定義され、Relay でつなぐようになる
+2. **Edit → Project Settings → Services** で、Unity Cloud のプロジェクトにリンクする（将棋のゲームと同じアカウントでよい）
+3. [Unity Cloud](https://cloud.unity.com/) で、そのプロジェクトの **Relay** を有効にする
+4. メニュー **Robot → ゲームのシーンを作成** をもう一度押す（シーンとプレハブを本物の Netcode 用に作り直す。これをしないと NetworkManager が「Missing Script」になる）
 
-部屋の作成・参加は `Assets/Scripts/Net/OnlineRooms.cs`、通信の中身は `Assets/Scripts/Net/WebSocketTransport.cs`（Web版は `Assets/Plugins/WebGL/WebSocketBridge.jslib` でブラウザの WebSocket を使う）。
+## Web版を公開する（GitHub Pages）
 
-## Web版（ブラウザで遊ぶ）
+将棋のゲームと同じやり方。
 
-1. Unity Hub → **インストール** → このバージョンの歯車 → **モジュールを加える** → **Web Build Support** を入れる
-2. メニュー **Robot → Web版をビルド** を押す → `server/public` にできる
-3. `server` を起動して（上の「サーバー」）、そのアドレスをブラウザで開く
-   - `index.html` をダブルクリックしただけでは動かない（サーバーが必要）
+1. Unity Hub → **インストール** → このバージョンの歯車 → **モジュールを加える** → **Web Build Support** を入れる（最初だけ）
+2. メニュー **Robot → Web版をビルド** を押す → `robot/Builds/Web` にできる
+   - Gzip 圧縮 ＋ Decompression Fallback（GitHub Pages は Brotli に対応しないため）に自動で設定する
+3. GitHub で公開用のリポジトリ（例：`robot-web`）を作り、`Builds/Web` の**中身**（`index.html`・`Build`・`TemplateData` など）を **Add file → Upload files** でアップロードする
+4. そのリポジトリの **Settings → Pages** で、Branch を `main`・フォルダを `/ (root)` にして Save
+5. しばらくすると `https://（ユーザー名）.github.io/robot-web/` で遊べる。その URL を友だちに送る
 
 注意：
 
+- `index.html` をダブルクリックしただけでは動かない
 - ブラウザのタブを裏に回すとゲームが止まる。**部屋を作った人はタブを開いたまま**にしておく
 - 1人で遊ぶときはサーバーにつながない（通信なし）
+- いまのところキーボード操作だけ（スマホのタッチ操作には対応していない）
 - Web版では OS の日本語フォントが使えないので、`Assets/Resources/Fonts/ipagp.ttf`（IPA Pゴシック、IPAフォントライセンス v1.0。ライセンス文は同じフォルダ）を同梱している
+
+### 予備：自分のサーバー（server/）
+
+Multiplayer Services を入れないときは、Node.js（18 以上）のサーバーで中継する。1つのサーバーで Web版を配るのと部屋番号の中継の両方をする。
+
+    cd server
+    npm install
+    npm start          # http://localhost:8080 で起動。robot/Builds/Web をそのまま配る
+    npm test           # 部屋を作る・入る・中継・満員・抜ける の動作確認
+
+- エディタ・PC版は、タイトル画面の **サーバー** の欄に URL を入れる（自分のPCなら `ws://localhost:8080/ws` のまま）
+- 公開するときは、`server` フォルダと Web版を Node.js が動くサーバー（Render・Railway・VPS など）に置いて `npm start`
+- 通信のきまりは `server/server.js` の先頭、Unity 側の通信は `Assets/Scripts/Net/WebSocketTransport.cs`
 
 ## 操作
 

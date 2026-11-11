@@ -217,7 +217,7 @@ public class GameBootstrap : MonoBehaviour
     {
         if (m_Busy) return;
         string code = OnlineRooms.Normalize(m_RoomInput);
-        if (code.Length < 4) { m_Status = "部屋番号（4けたの数字）を入力してください。"; return; }
+        if (code.Length < 4) { m_Status = OnlineRooms.UsesRelay ? "部屋番号（6文字の英数字）を入力してください。" : "部屋番号（4けたの数字）を入力してください。"; return; }
         m_Busy = true;
         m_Status = $"部屋 {code} に入っています…";
         SaveUrl();
@@ -377,7 +377,7 @@ public class GameBootstrap : MonoBehaviour
             }
             GUILayout.BeginHorizontal();
             if (GUILayout.Button("部屋を作る", m_Button, GUILayout.Width(240 * s), GUILayout.Height(44 * s))) CreateRoom(true);
-            GUILayout.Label("4けたの部屋番号がもらえるので、友だちに教えよう", m_Small);
+            GUILayout.Label(OnlineRooms.UsesRelay ? "6文字の部屋番号がもらえるので、友だちに教えよう" : "4けたの部屋番号がもらえるので、友だちに教えよう", m_Small);
             GUILayout.EndHorizontal();
             GUILayout.Space(10 * s);
             GUILayout.BeginHorizontal();
