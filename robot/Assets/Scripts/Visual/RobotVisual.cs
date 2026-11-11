@@ -26,6 +26,7 @@ public class RobotVisual : MonoBehaviour
     float m_Recoil, m_HitReact, m_HitSide = 1f;
     readonly float[] m_SparkT = new float[2];
     readonly float[] m_LegSparkT = new float[2];
+    readonly float[] m_GuardBlend = new float[2];   // ガードの構えの度合い（0～1）
 
     // 必殺技：胸の灯りがためで強く光り、ビームを撃つ
     Renderer m_ChestLight;
@@ -365,6 +366,16 @@ public class RobotVisual : MonoBehaviour
                 m_SparkT[i] = Random.Range(0.25f, 0.9f);
                 Boom(m_Arm[i].position, 0.35f, new Color(1f, 0.92f, 0.5f));
             }
+        }
+        // ガード：両腕を顔と胸の前で交差させ、前腕の装甲板を敵に向ける
+        bool[] guarding = { s.GuardL.Value, s.GuardR.Value };
+        for (int i = 0; i < 2; i++)
+        {
+            m_GuardBlend[i] = Mathf.MoveTowards(m_GuardBlend[i], guarding[i] ? 1f : 0f, dt * 5f);
+            if (m_GuardBlend[i] <= 0f) continue;
+            float side = i == 0 ? -1f : 1f;
+            var block = new ArmPose { Pitch = -62f, Roll = -side * 14f, Elbow = -118f, Curl = 100f, Lean = 3f, Drop = 0.25f };
+            pose[i] = ArmPose.Lerp(pose[i], block, Smooth(m_GuardBlend[i]));
         }
         // パンチしていない腕は、顔の前で構える（ガード）
         for (int i = 0; i < 2; i++)
@@ -738,7 +749,9 @@ public class RobotVisual : MonoBehaviour
 
     public void Hit()
     {
-        m_HitReact = 1f;
+        // ガードしていると、のけぞりが小さい
+        bool guard = m_State != null && (m_State.GuardL.Value || m_State.GuardR.Value);
+        m_HitReact = guard ? 0.4f : 1f;
         m_HitSide = Random.value < 0.5f ? -1f : 1f;
         Shake = Mathf.Max(Shake, 0.7f);
         HitFlash = 1f;

@@ -30,7 +30,8 @@ public class StationUI : MonoBehaviour
     Rect m_LeverTrack, m_BrakeRect;
     // 腕
     float m_Pull, m_PunchFlash, m_PunchCd;
-    bool m_DragPunch;
+    bool m_DragPunch, m_MouseGuard;
+    Rect m_GuardRect;
     Rect m_PunchTrack, m_DialRect;
     float m_AimTarget = float.NaN;
     // 頭部砲
@@ -48,7 +49,7 @@ public class StationUI : MonoBehaviour
     void ResetPanel()
     {
         m_LegTarget = m_AimTarget = m_HeadTarget = float.NaN;
-        m_DragLever = m_DragPunch = m_MouseFire = false;
+        m_DragLever = m_DragPunch = m_MouseFire = m_MouseGuard = false;
         m_Pull = 0f;
         m_Presses = 0;
         m_CoreMsg = "";
@@ -118,7 +119,7 @@ public class StationUI : MonoBehaviour
                 // 肩の配線が切れているあいだは、腕が動かないので操作盤も効かない
                 if (!rs.TaskOk(st == Stations.LeftArm ? Tasks.WiresL : Tasks.WiresR))
                 {
-                    Stick = Vector2.zero; Held = false; m_Pull = 0f; m_DragPunch = false; m_AimTarget = float.NaN;
+                    Stick = Vector2.zero; Held = false; m_Pull = 0f; m_DragPunch = false; m_MouseGuard = false; m_AimTarget = float.NaN;
                     break;
                 }
                 // 狙い：A/D か、ダイヤルをクリックした向きへ
@@ -135,7 +136,9 @@ public class StationUI : MonoBehaviour
                 // パンチレバー：Space か S を押しているあいだ引いて、離すと叩き込む（引ききっていないと空振り）
                 m_PunchCd = Mathf.Max(0f, m_PunchCd - dt);
                 m_PunchFlash = Mathf.Max(0f, m_PunchFlash - dt * 2f);
-                bool pulling = (space || y < -0.5f || m_DragPunch) && m_PunchCd <= 0f;
+                // ガード：W（ゲームパッドは LB）か、ガードボタンを押しているあいだ。ガード中はパンチできない
+                bool guard = y > 0.5f || m_MouseGuard || (gp != null && gp.leftShoulder.isPressed);
+                bool pulling = !guard && (space || y < -0.5f || m_DragPunch) && m_PunchCd <= 0f;
                 if (pulling) m_Pull = Mathf.Min(1f, m_Pull + dt / 0.55f);
                 bool release = !pulling && m_Pull > 0f;
                 if (release)
@@ -149,7 +152,8 @@ public class StationUI : MonoBehaviour
                     }
                     else m_Pull = Mathf.Max(0f, m_Pull - dt * 3f); // バネで戻る
                 }
-                Held = false;
+                if (guard) m_Pull = Mathf.Max(0f, m_Pull - dt * 3f);
+                Held = guard;
                 break;
             }
             case StationType.Head:
@@ -392,7 +396,25 @@ public class StationUI : MonoBehaviour
         if (e.type == EventType.MouseDown && knob.Contains(e.mousePosition)) { m_DragPunch = true; e.Use(); }
         if (e.type == EventType.MouseUp) m_DragPunch = false;
 
-        string help = "Space（か S・レバーをドラッグ）で引いて、引ききったら離すとパンチ";
+        // ガードボタン（押しているあいだ）
+        bool guarding = left ? rs.GuardL.Value : rs.GuardR.Value;
+        bool other = left ? rs.GuardR.Value : rs.GuardL.Value;
+        m_GuardRect = new Rect(c.x - r, c.y + 64 * s, r * 2f, 40 * s);
+        UIDraw.Fill(m_GuardRect, guarding ? Prims.Hex("#4fd2ff") : new Color(0.16f, 0.3f, 0.4f));
+        UIDraw.Frame(m_GuardRect, guarding ? Color.white : Prims.Hex("#4fd2ff"), 2f);
+        var gs = new GUIStyle(m_Center);
+        gs.normal.textColor = guarding ? new Color(0.04f, 0.1f, 0.14f) : Color.white;
+        GUI.Label(m_GuardRect, guarding ? (other ? "両腕でガード中！" : "ガード中") : "ガード（W 長押し）", gs);
+        if (e.type == EventType.MouseDown && m_GuardRect.Contains(e.mousePosition)) { m_MouseGuard = true; e.Use(); }
+        if (e.type == EventType.MouseUp) m_MouseGuard = false;
+        if (rs.BossAction.Value == RobotState.BossSwipe)
+        {
+            float bl = Mathf.Abs(Mathf.Sin(Time.time * 8f));
+            GUI.Label(new Rect(c.x - r - 40 * s, m_GuardRect.y - 25 * s, r * 2f + 80 * s, 22 * s), "<color=#ff6a4a><b>⚠ 敵が振りかぶっている！ ガード！</b></color>", m_Center);
+            if (!guarding) UIDraw.Frame(new Rect(m_GuardRect.x - 4 * s, m_GuardRect.y - 4 * s, m_GuardRect.width + 8 * s, m_GuardRect.height + 8 * s), new Color(1f, 0.4f, 0.3f, bl), 3f * s);
+        }
+
+        string help = "Space（か S・レバーをドラッグ）で引いて、引ききったら離すとパンチ。W 長押しでガード（両腕だと攻撃をほぼ防げる）";
         GUI.Label(new Rect(a.x, a.yMax - 44 * s, a.width, 44 * s), help, m_Small);
 
         // 肩の配線が切れていると腕が動かない：操作盤全体を赤く覆って知らせる
