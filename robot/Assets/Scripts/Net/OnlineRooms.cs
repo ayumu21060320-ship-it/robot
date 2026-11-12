@@ -17,8 +17,11 @@ using Unity.Services.Relay.Models;
 ///    - 部屋を作ると Relay から6文字の部屋番号（例：K7M2QX）がもらえる。サーバーを用意しなくてよいので、
 ///      Web 版は GitHub Pages に置くだけで遊べる
 ///    - 通信は WebSocket（wss）なので、ブラウザでも PC でもつながる
-/// 2. 自分のサーバー（Multiplayer Services が無いとき。server/server.js）
-///    - 4けたの部屋番号。Web 版は開いたページと同じサーバーへ、エディタ・PC 版はメニューで入れた URL へつなぐ
+/// 2. ブラウザどうしを直接つなぐ（Multiplayer Services が無いときの Web 版。PeerTransport.cs）
+///    - PeerJS の無料の仲介サーバーで相手を探し、WebRTC で直接つながる。4けたの部屋番号
+///    - サーバーを用意しなくてよいので、GitHub Pages に置くだけでマルチができる
+/// 3. 自分のサーバー（Multiplayer Services が無いときのエディタ・PC 版。server/server.js）
+///    - 4けたの部屋番号。メニューで入れた URL へつなぐ
 ///
 /// 1人用はどちらでもサーバーにつながない。Netcode for GameObjects が入っていないときは1人用だけ（Available = false）。
 /// </summary>
@@ -40,11 +43,12 @@ public static class OnlineRooms
     const string UrlKey = "titan_server_url";
     public const string LocalUrl = "ws://localhost:8080/ws";
 
-    /// <summary>
-    /// GitHub Pages など、ファイルを置くだけの場所で開いているため、自分のサーバーにつなげないとき true。
-    /// （Relay が無い状態で Web 版を GitHub Pages に置いた場合。1人用だけ遊べる）
-    /// </summary>
-    public static bool NoServerHere => !UsesRelay && PageUrl().Contains("github.io");
+#if HAS_NETCODE
+    /// <summary>ブラウザどうしを直接つなぐ（Relay が無いときの Web 版）</summary>
+    public static bool UsesPeer => !UsesRelay && PeerTransport.Supported;
+#else
+    public static bool UsesPeer => false;
+#endif
 
     /// <summary>今いる部屋の部屋番号（部屋に入っていなければ空）</summary>
     public static string RoomCode { get; private set; } = "";
@@ -52,7 +56,7 @@ public static class OnlineRooms
     public static void Clear() => RoomCode = "";
 
     /// <summary>サーバーの URL を入れる欄がいらないとき true（Relay を使う、または Web 版で開いたページのサーバーにつなぐ）</summary>
-    public static bool UrlFromPage => UsesRelay || !string.IsNullOrEmpty(PageUrl());
+    public static bool UrlFromPage => UsesRelay || UsesPeer || !string.IsNullOrEmpty(PageUrl());
 
     /// <summary>つなぐサーバーの URL。Web 版はページと同じサーバー、それ以外は前回入れた URL</summary>
     public static string ServerUrl
@@ -111,7 +115,9 @@ public static class OnlineRooms
     /// <summary>うまくいかなかったときの理由（切断されたときにも使う）</summary>
     public static string LastError(NetworkManager nm)
     {
-        var t = nm != null ? nm.GetComponent<WebSocketTransport>() : null;
+        if (nm == null) return "";
+        if (nm.NetworkConfig.NetworkTransport is PeerTransport p) return p.LastError;
+        var t = nm.GetComponent<WebSocketTransport>();
         return t != null ? t.LastError : "";
     }
 
@@ -189,11 +195,42 @@ public static class OnlineRooms
         return m;
     }
 #else
-    // ---------------- 自分のサーバー（server/server.js）
+    // ---------------- ブラウザどうしを直接つなぐ（Web 版。PeerJS）
 
-    /// <summary>サーバーに部屋を作ってもらい、ホストとして始める。成功したら部屋番号を返す。</summary>
+    static PeerTransport UsePeerTransport(NetworkManager nm)
+    {
+        var t = nm.GetComponent<PeerTransport>();
+        if (t == null) t = nm.gameObject.AddComponent<PeerTransport>();
+        nm.NetworkConfig.NetworkTransport = t;
+        return t;
+    }
+
+    static async Task<string> CreatePeerRoom(NetworkManager nm)
+    {
+        var t = UsePeerTransport(nm);
+        if (!nm.StartHost()) throw new Exception(Or(t.LastError, "ホストを始められませんでした。"));
+        await WaitFor(() => t.Ready || !string.IsNullOrEmpty(t.LastError) || !nm.IsListening, 20f);
+        if (!t.Ready || string.IsNullOrEmpty(t.RoomCode)) throw new Exception(Or(t.LastError, "仲介サーバー（PeerJS）から返事がありませんでした。回線を確かめてください。"));
+        RoomCode = t.RoomCode;
+        return RoomCode;
+    }
+
+    static async Task JoinPeerRoom(NetworkManager nm, string code)
+    {
+        var t = UsePeerTransport(nm);
+        t.JoinCode = Normalize(code);
+        if (!nm.StartClient()) throw new Exception(Or(t.LastError, "接続を始められませんでした。"));
+        await WaitFor(() => nm.IsConnectedClient || !string.IsNullOrEmpty(t.LastError) || !nm.IsListening, 25f);
+        if (!nm.IsConnectedClient) throw new Exception(Or(t.LastError, "部屋を作った人につながりませんでした。番号を確かめて、もう一度試してください。"));
+        RoomCode = t.JoinCode;
+    }
+
+    // ---------------- 自分のサーバー（server/server.js）。エディタ・PC 版
+
+    /// <summary>部屋を作ってホストとして始める。成功したら部屋番号を返す。</summary>
     public static async Task<string> CreateRoom(NetworkManager nm)
     {
+        if (UsesPeer) return await CreatePeerRoom(nm);
         var t = UseTransport(nm);
         t.Offline = false;
         t.ServerUrl = ServerUrl;
@@ -207,6 +244,7 @@ public static class OnlineRooms
     /// <summary>部屋番号で部屋に入る。</summary>
     public static async Task JoinRoom(NetworkManager nm, string code)
     {
+        if (UsesPeer) { await JoinPeerRoom(nm, code); return; }
         var t = UseTransport(nm);
         t.Offline = false;
         t.ServerUrl = ServerUrl;
@@ -218,10 +256,10 @@ public static class OnlineRooms
     }
 #endif
 
-    /// <summary>条件がそろうまで（最大12秒）1フレームずつ待つ。Web 版はスレッドが使えないので Task.Delay は使わない</summary>
-    static async Task WaitFor(Func<bool> done)
+    /// <summary>条件がそろうまで（最大 seconds 秒）1フレームずつ待つ。Web 版はスレッドが使えないので Task.Delay は使わない</summary>
+    static async Task WaitFor(Func<bool> done, float seconds = 12f)
     {
-        float until = Time.realtimeSinceStartup + 12f;
+        float until = Time.realtimeSinceStartup + seconds;
         while (!done() && Time.realtimeSinceStartup < until) await Task.Yield();
     }
 
