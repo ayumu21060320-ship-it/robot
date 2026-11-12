@@ -24,24 +24,35 @@ Unity プロジェクト本体は `robot/` フォルダにあります。
 
 ゲームの計算は部屋を作った人のブラウザ（またはPC）がする。部屋を作った人が抜けると、その部屋はなくなる。
 
-つなぎ方は2通りあり、入っているパッケージで自動で決まる（`Assets/Scripts/Net/OnlineRooms.cs`）。
+つなぎ方は3通りあり、入っているパッケージと遊ぶ場所で自動で決まる（`Assets/Scripts/Net/OnlineRooms.cs`）。
 
-| | Unity Relay（ふつうはこちら） | 自分のサーバー（予備） |
-|---|---|---|
-| 使うとき | Multiplayer Services 2.4.1 が入っている | Multiplayer Services が入っていない |
-| 部屋番号 | 6文字の英数字（例：`K7M2QX`） | 4けたの数字（例：`4821`） |
-| サーバー | いらない（Unity が中継する） | `server/`（Node.js）を動かす |
-| Web版の公開 | GitHub Pages に置くだけ | `server` ごとサーバーに置く |
+| | ブラウザどうし直接（いまはこれ） | Unity Relay | 自分のサーバー（予備） |
+|---|---|---|---|
+| 使うとき | Web版（Multiplayer Services なし） | Multiplayer Services 2.4.1 が入っている | エディタ・PC版（Multiplayer Services なし） |
+| 部屋番号 | 4けたの数字（例：`4821`） | 6文字の英数字（例：`K7M2QX`） | 4けたの数字 |
+| 仲介 | PeerJS の無料の仲介サーバー（0.peerjs.com） | Unity Relay | `server/`（Node.js） |
+| 準備 | いらない | パッケージと Unity Cloud のリンク | サーバーを動かす |
+| Web版の公開 | GitHub Pages に置くだけ | GitHub Pages に置くだけ | `server` ごとサーバーに置く |
 
-将棋のゲーム（syougi / syougi-web）と同じ、**Unity Relay ＋ GitHub Pages** がおすすめ。
+### ブラウザどうし直接（WebRTC ＋ PeerJS）
 
-### オンラインの準備（最初に1回だけ）
+- 部屋を作ると、そのブラウザが PeerJS の無料の仲介サーバーに「titancrew-4821」のような名前で登録される
+- 入る人はその番号で相手を探し、**ブラウザどうしが WebRTC で直接つながる**（直接つながらない回線では、PeerJS の無料の中継サーバー TURN を通る）
+- Unity のパッケージやアカウントはいらない。GitHub Pages に置いた Web版だけでマルチができる
+- マルチができるのは **Web版だけ**（エディタで試すときは1人用か、予備の自分のサーバー）
+- 学校のように制限の強い回線では、仲介サーバーや WebRTC が遮断されてつながらないことがある
+  （そのときは「仲介サーバー（PeerJS）につながりませんでした」などと出る）
+- 中身：`Assets/Plugins/WebGL/PeerBridge.jslib`（ブラウザ側）と `Assets/Scripts/Net/PeerTransport.cs`（Netcode の通信方式）。
+  PeerJS 本体（MIT ライセンス）は `robot/WebExtras/peerjs.min.js` にあり、`Robot → Web版をビルド` でゲームの横にコピーされる
+  （見つからなければ unpkg / jsDelivr から読み込む）
+
+### Unity Relay を使うとき（将棋のゲームと同じ）
 
 学校のネットワークでは Unity のパッケージが取れないので、**家やスマホのテザリングなど制限のない回線で**やる。
 
 1. **Window → Package Manager** → 左上の **＋** → **Install package by name...** に `com.unity.services.multiplayer`、Version に `2.4.1` と入れて Install
    - 学校の回線では取れないので、`manifest.json` には入れていない（入れると学校でプロジェクトが開けなくなる）
-   - 入ると `HAS_RELAY` が定義され、Relay でつなぐようになる。入れるまでは、GitHub Pages に置いた Web版は1人用だけ遊べる
+   - 入ると `HAS_RELAY` が定義され、Web版も Relay でつなぐようになる
 2. **Edit → Project Settings → Services** で、Unity Cloud のプロジェクトにリンクする（将棋のゲームと同じアカウントでよい）
 3. [Unity Cloud](https://cloud.unity.com/) で、そのプロジェクトの **Relay** を有効にする
 4. メニュー **Robot → ゲームのシーンを作成** をもう一度押す（シーンとプレハブを本物の Netcode 用に作り直す。これをしないと NetworkManager が「Missing Script」になる）
@@ -53,7 +64,7 @@ Unity プロジェクト本体は `robot/` フォルダにあります。
 1. Unity Hub → **インストール** → このバージョンの歯車 → **モジュールを加える** → **Web Build Support** を入れる（最初だけ）
 2. メニュー **Robot → Web版をビルド** を押す → `robot/Builds/Web` にできる
    - Gzip 圧縮 ＋ Decompression Fallback（GitHub Pages は Brotli に対応しないため）に自動で設定する
-3. GitHub で公開用のリポジトリ（例：`robot-web`）を作り、`Builds/Web` の**中身**（`index.html`・`Build`・`TemplateData` など）を **Add file → Upload files** でアップロードする
+3. GitHub で公開用のリポジトリ（例：`robot-web`）を作り、`Builds/Web` の**中身**（`index.html`・`Build`・`TemplateData`・`peerjs.min.js` など）を **Add file → Upload files** でアップロードする
 4. そのリポジトリの **Settings → Pages** で、Branch を `main`・フォルダを `/ (root)` にして Save
 5. しばらくすると `https://（ユーザー名）.github.io/robot-web/` で遊べる。その URL を友だちに送る
 
@@ -187,6 +198,7 @@ Multiplayer Services を入れないときは、Node.js（18 以上）のサー�
 | `tools/art/lobby_room.py` | 出撃前の待機室の背景（壁・窓・座席・出撃ゲート）を1枚の絵として描く |
 | `Assets/Scripts/Map/InteriorMap.cs` | ロボット内部の部屋と通路、歩ける場所の判定、内部の見た目 |
 | `Assets/Scripts/Net/OnlineRooms.cs` | 部屋番号のオンライン（サーバーに部屋を作る・部屋番号で入る・1人用） |
+| `Assets/Scripts/Net/PeerTransport.cs` | Web版のマルチ：ブラウザどうしを WebRTC（PeerJS）で直接つなぐ |
 | `Assets/Scripts/Net/WebSocketTransport.cs` | Netcode の通信を WebSocket でサーバーに流す（PC版は .NET、Web版は jslib） |
 | `server/server.js` | Web版を配り、部屋番号ごとに通信を中継するサーバー（Node.js） |
 | `Assets/Scripts/Editor/WebBuild.cs` | メニュー「Robot → Web版をビルド」 |

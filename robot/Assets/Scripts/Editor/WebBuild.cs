@@ -47,10 +47,16 @@ public static class WebBuild
 
         if (report.summary.result == UnityEditor.Build.Reporting.BuildResult.Succeeded)
         {
+            // ブラウザどうしのマルチに使う PeerJS（robot/WebExtras）を、ゲームの横に置く
+            foreach (var f in new[] { "peerjs.min.js", "PEERJS_LICENSE.txt" })
+            {
+                string src = Path.Combine("WebExtras", f);
+                if (File.Exists(src)) File.Copy(src, Path.Combine(OutDir, f), true);
+            }
             EditorUtility.RevealInFinder(Path.GetFullPath(OutDir));
             EditorUtility.DisplayDialog("Web版をビルド",
                 "できました：robot/Builds/Web\n\n" +
-                "このフォルダの中身（index.html・Build・TemplateData など）を、GitHub Pages 用のリポジトリにアップロードしてください（README の「Web版を公開する」）。\n" +
+                "このフォルダの中身（index.html・Build・TemplateData・peerjs.min.js など）を、GitHub Pages 用のリポジトリにアップロードしてください（README の「Web版を公開する」）。\n" +
                 "※ index.html をダブルクリックしても動きません。", "OK");
         }
         else
