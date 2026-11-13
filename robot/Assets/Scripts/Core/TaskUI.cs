@@ -43,8 +43,10 @@ public class TaskUI : MonoBehaviour
     // ジャイロ
     float m_GyroX, m_GyroV, m_GyroTime;
 
-    const int GaugeHits = 3, ScopeHits = 3, FuseRounds = 2, DebrisCount = 12;
-    const float ValveTurns = 2f, GyroNeed = 3f;
+    // 修理はさっと終わるように簡単め（ロボットの操縦がメイン）
+    const int GaugeHits = 2, ScopeHits = 2, FuseRounds = 1, DebrisCount = 6;
+    const float ValveTurns = 1f, GyroNeed = 2f;
+    const float GaugeZone = 22f, ScopeZone = 26f, GyroZone = 0.34f;   // 当たりの範囲の半分（度／割合）
 
     void Awake() => Instance = this;
 
@@ -67,10 +69,10 @@ public class TaskUI : MonoBehaviour
                 m_WireCursor = 0; m_WirePicked = -1;
                 break;
             case TaskKind.Gauge:
-                m_ZoneCenter = Random.Range(-50f, 50f); m_Speed = 2.2f; m_Phase = Random.value * 6f;
+                m_ZoneCenter = Random.Range(-50f, 50f); m_Speed = 1.6f; m_Phase = Random.value * 6f;
                 break;
             case TaskKind.Scope:
-                m_ZoneCenter = Random.Range(0f, 360f); m_Speed = 120f; m_Phase = Random.Range(0f, 360f);
+                m_ZoneCenter = Random.Range(0f, 360f); m_Speed = 90f; m_Phase = Random.Range(0f, 360f);
                 break;
             case TaskKind.Fuse:
                 m_FuseRound = 0; NewFuseRound();
@@ -155,8 +157,8 @@ public class TaskUI : MonoBehaviour
             case TaskKind.Gauge:
                 if (act)
                 {
-                    if (Mathf.Abs(GaugeNeedle() - m_ZoneCenter) < 14f) { m_Hits++; m_ZoneCenter = Random.Range(-50f, 50f); m_Speed += 0.5f; }
-                    else { m_Hits = Mathf.Max(0, m_Hits - 1); m_FailT = 0.3f; }
+                    if (Mathf.Abs(GaugeNeedle() - m_ZoneCenter) < GaugeZone) { m_Hits++; m_ZoneCenter = Random.Range(-50f, 50f); m_Speed += 0.2f; }
+                    else m_FailT = 0.3f;   // 外れても減らない
                     if (m_Hits >= GaugeHits) Succeed();
                 }
                 break;
@@ -164,7 +166,7 @@ public class TaskUI : MonoBehaviour
             case TaskKind.Scope:
                 if (act)
                 {
-                    if (Mathf.Abs(Mathf.DeltaAngle(ScopeMarker(), m_ZoneCenter)) < 15f) { m_Hits++; m_ZoneCenter = Random.Range(0f, 360f); m_Speed += 40f; }
+                    if (Mathf.Abs(Mathf.DeltaAngle(ScopeMarker(), m_ZoneCenter)) < ScopeZone) { m_Hits++; m_ZoneCenter = Random.Range(0f, 360f); m_Speed += 15f; }
                     else m_FailT = 0.3f;
                     if (m_Hits >= ScopeHits) Succeed();
                 }
@@ -186,11 +188,11 @@ public class TaskUI : MonoBehaviour
                 float push = 0f;
                 if (kb != null) { if (kb.aKey.isPressed || kb.leftArrowKey.isPressed) push -= 1f; if (kb.dKey.isPressed || kb.rightArrowKey.isPressed) push += 1f; }
                 if (gp != null) push += gp.leftStick.ReadValue().x;
-                m_GyroV += (Mathf.Sin(m_T * 1.3f) * 1.1f + Mathf.Sin(m_T * 3.1f) * 0.6f + push * 2.6f) * dt;
+                m_GyroV += (Mathf.Sin(m_T * 1.3f) * 0.7f + Mathf.Sin(m_T * 3.1f) * 0.35f + push * 2.6f) * dt;
                 m_GyroV *= Mathf.Exp(-1.5f * dt);
                 m_GyroX = Mathf.Clamp(m_GyroX + m_GyroV * dt, -1f, 1f);
                 if (Mathf.Abs(m_GyroX) >= 1f) m_GyroV = 0f;
-                if (Mathf.Abs(m_GyroX) < 0.22f) m_GyroTime += dt;
+                if (Mathf.Abs(m_GyroX) < GyroZone) m_GyroTime += dt;
                 if (m_GyroTime >= GyroNeed) Succeed();
                 break;
             }
@@ -391,7 +393,7 @@ public class TaskUI : MonoBehaviour
         // 目盛りと緑の範囲（-80° ～ 80°）
         for (float deg = -80f; deg <= 80.1f; deg += 4f)
         {
-            bool zone = Mathf.Abs(deg - m_ZoneCenter) < 14f;
+            bool zone = Mathf.Abs(deg - m_ZoneCenter) < GaugeZone;
             var dir = new Vector2(Mathf.Sin(deg * Mathf.Deg2Rad), -Mathf.Cos(deg * Mathf.Deg2Rad));
             Line(c + dir * r * 0.78f, c + dir * r, zone ? 10 * s : 4 * s, zone ? new Color(0.3f, 0.85f, 0.35f) : new Color(1, 1, 1, 0.35f));
         }
@@ -408,7 +410,7 @@ public class TaskUI : MonoBehaviour
         for (float deg = 0; deg < 360f; deg += 6f)
         {
             var dir = new Vector2(Mathf.Sin(deg * Mathf.Deg2Rad), -Mathf.Cos(deg * Mathf.Deg2Rad));
-            bool zone = Mathf.Abs(Mathf.DeltaAngle(deg, m_ZoneCenter)) < 15f;
+            bool zone = Mathf.Abs(Mathf.DeltaAngle(deg, m_ZoneCenter)) < ScopeZone;
             Line(c + dir * r * 0.9f, c + dir * r, zone ? 10 * s : 3 * s, zone ? new Color(0.5f, 1f, 0.35f) : new Color(0.5f, 1f, 0.35f, 0.25f));
         }
         Line(c + new Vector2(-r * 0.6f, 0), c + new Vector2(r * 0.6f, 0), 2 * s, new Color(0.5f, 1f, 0.35f, 0.4f));
@@ -455,7 +457,7 @@ public class TaskUI : MonoBehaviour
     {
         float cy = a.center.y;
         Fill(new Rect(a.x + 10 * s, cy - 3 * s, a.width - 20 * s, 6 * s), new Color(1, 1, 1, 0.2f));
-        float zoneW = (a.width - 20 * s) * 0.22f;
+        float zoneW = (a.width - 20 * s) * GyroZone;
         Fill(new Rect(a.center.x - zoneW * 0.5f, cy - 40 * s, zoneW, 80 * s), new Color(0.3f, 0.85f, 0.35f, 0.35f));
         float x = a.center.x + m_GyroX * (a.width * 0.5f - 24 * s);
         Fill(new Rect(x - 12 * s, cy - 30 * s, 24 * s, 60 * s), Prims.Hex("#5fe8ff"));

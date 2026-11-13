@@ -29,7 +29,7 @@ public class RobotState : NetworkBehaviour
     public const float PunchTime = 1.4f; // パンチの腕振り全体の時間（見た目と合わせる）
     const float PunchHitDelay = 0.6f;    // 振りかぶってから当たるまで
     const float PunchCooldown = 2.2f;
-    const float PunchDamage = 12f;
+    const float PunchDamage = 25f;       // ロボットの本命の攻撃なので強め（敵の体力の約1割）
 
     // ---- 巨大な敵（1体だけ）
     public const float BossMaxHp = 220f;          // 操縦が大変なので、敵は少し弱め
@@ -38,7 +38,7 @@ public class RobotState : NetworkBehaviour
     const float BossWalkSpeed = 2.3f, BossTurnSpeed = 0.5f, BossReach = 38f;
     public const float BossSwipeWindup = 1.8f;    // 腕を振りかぶっている時間（見た目と合わせる）
     public const int BossIdle = 0, BossSwipe = 1, BossBarrage = 2, BossStomp = 3;   // BossBarrage（遠距離の光弾）は使わない
-    const float SwipeDamage = 9f, StompDamage = 4f, StompRange = 55f;
+    const float SwipeDamage = 6f, StompDamage = 2.5f, StompRange = 55f;   // 装甲は厚め
 
     // ---- ガード（腕の席で W 長押し）
     const float GuardCut = 0.4f;          // 腕1本で受けるダメージを 40% 減らす（両腕で 80%）
@@ -261,7 +261,7 @@ public class RobotState : NetworkBehaviour
         Special.Value = 0f;
         SpecialCharging.Value = false;
         m_SpecialT = -1f;
-        m_TaskBreakT = 15f;
+        m_TaskBreakT = 45f;   // 最初の故障は少し遅く
         m_Bolts.Clear();
         m_PunchHitAt[0] = m_PunchHitAt[1] = -1f;
         foreach (var p in CrewPlayer.All) p.Station.Value = -1;
@@ -384,13 +384,13 @@ public class RobotState : NetworkBehaviour
         if (m_TaskBreakT <= 0f)
         {
             BreakRandomTask();
-            m_TaskBreakT = Random.Range(16f, 28f);
+            m_TaskBreakT = Random.Range(40f, 60f);   // 故障はたまにだけ
         }
         // 油圧の故障で、すでに倒れているレバーも戻される
         if (!LegWorks(0)) legL = 0f;   // 油圧が切れた脚は止まる
         if (!LegWorks(1)) legR = 0f;
         if (!TaskOk(Tasks.Valve)) power -= 1.5f * dt;   // 冷却が止まって動力が漏れる
-        if (!TaskOk(Tasks.Vent)) hull -= 0.4f * dt;     // 熱がこもって装甲が傷む
+        if (!TaskOk(Tasks.Vent)) hull -= 0.2f * dt;     // 熱がこもって装甲が傷む
 
         // ---- 歩行（左右の脚レバーの平均で前進、差で旋回）
         // 重いので、レバーを倒してもすぐには速くならず、戻してもすぐには止まらない
@@ -536,7 +536,7 @@ public class RobotState : NetworkBehaviour
             bolt.Life -= dt;
             if (BossAlive && Vector2.Distance(BossPos.Value, bolt.P) < BossRadius)
             {
-                DamageBoss(1f);
+                DamageBoss(1.5f);
                 bolt.Life = 0f;
                 BoomFxRpc(new Vector3(bolt.P.x, 26f, bolt.P.y), 0.5f, new Color(0.56f, 0.96f, 1f));
             }
@@ -584,9 +584,9 @@ public class RobotState : NetworkBehaviour
                             float g = GuardAmount();
                             RobotHit(SwipeDamage * (1f - g), g);
                             // 両腕でガードしていれば、火事や配線切れは起きない
-                            if (Random.value < 0.25f * (1f - g)) StartFire();
+                            if (Random.value < 0.1f * (1f - g)) StartFire();
                             // 爪が肩に当たって、片方の腕の配線が切れることがある
-                            if (Random.value < 0.25f * (1f - g)) BreakTask(Random.value < 0.5f ? Tasks.WiresL : Tasks.WiresR);
+                            if (Random.value < 0.1f * (1f - g)) BreakTask(Random.value < 0.5f ? Tasks.WiresL : Tasks.WiresR);
                         }
                         var tip = bp + new Vector2(Mathf.Sin(BossYaw.Value), Mathf.Cos(BossYaw.Value)) * 22f;
                         BoomFxRpc(new Vector3(tip.x, 8f, tip.y), 2.2f, new Color(1f, 0.4f, 0.6f));
@@ -603,7 +603,7 @@ public class RobotState : NetworkBehaviour
                             float g = GuardAmount();
                             RobotHit(StompDamage * (1f - g * 0.5f), g * 0.5f);   // 足踏みの揺れはガードで半分しか防げない
                             // 地面の揺れで、片方の脚の油圧が切れることがある
-                            if (Random.value < 0.2f) BreakTask(Random.value < 0.5f ? Tasks.GaugeL : Tasks.GaugeR);
+                            if (Random.value < 0.07f) BreakTask(Random.value < 0.5f ? Tasks.GaugeL : Tasks.GaugeR);
                         }
                     }
                     if (m_BossActT >= 2.6f) EndBossAction();
@@ -666,8 +666,8 @@ public class RobotState : NetworkBehaviour
             BoomFxRpc(new Vector3(fp.x, 13f * TitanScale, fp.y), 1.4f, new Color(0.55f, 0.85f, 1f));
         }
         HitFxRpc();
-        if (Random.value < 0.2f * (1f - guard)) StartFire();
-        if (Random.value < 0.12f * (1f - guard)) BreakRandomTask();
+        if (Random.value < 0.08f * (1f - guard)) StartFire();
+        if (Random.value < 0.04f * (1f - guard)) BreakRandomTask();
     }
 
     void StartFire()
@@ -676,7 +676,7 @@ public class RobotState : NetworkBehaviour
         for (int i = 0; i < Stations.Count; i++) if (FireHp[i] <= 0) free.Add(i);
         if (free.Count == 0) return;
         int st = free[Random.Range(0, free.Count)];
-        FireHp[st] = 5;
+        FireHp[st] = 3;   // Space 3回で消える
         int occ = Occupant[st];
         if (occ != 0)
         {
