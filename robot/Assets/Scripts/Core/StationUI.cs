@@ -111,6 +111,8 @@ public class StationUI : MonoBehaviour
                 }
                 else Stick = Vector2.zero;
                 if (spaceDown) { m_Presses++; m_LegTarget = float.NaN; }   // ブレーキ（レバーを 0 へ）
+                // キック：F（ゲームパッドは Y）
+                if ((kb != null && kb.fKey.wasPressedThisFrame) || (gp != null && gp.buttonNorth.wasPressedThisFrame)) TryKick(rs, st == Stations.LeftLeg ? 0 : 1);
                 Held = false;
                 break;
             }
@@ -143,31 +145,58 @@ public class StationUI : MonoBehaviour
                 }
                 else Stick = Vector2.zero;
 
-                // パンチレバー：Space か S を押しているあいだ引いて、離すと叩き込む（引ききっていないと空振り）
-                m_PunchCd = Mathf.Max(0f, m_PunchCd - dt);
+                // ---- パンチ：操作ごとに違うパンチが出る
+                float now = Time.time;
                 m_PunchFlash = Mathf.Max(0f, m_PunchFlash - dt * 2f);
-                // ガード：W（ゲームパッドは LB）か、ガードボタンを押しているあいだ。ガード中はパンチできない
-                bool guard = y > 0.5f || m_MouseGuard || (gp != null && gp.leftShoulder.isPressed);
-                bool pulling = !guard && (space || y < -0.5f || m_DragPunch) && m_PunchCd <= 0f;
-                if (pulling) m_Pull = Mathf.Min(1f, m_Pull + dt / 0.55f);
-                bool release = !pulling && m_Pull > 0f;
-                if (release)
+                bool aDown = kb != null && (kb.aKey.wasPressedThisFrame || kb.leftArrowKey.wasPressedThisFrame);
+                bool dDown = kb != null && (kb.dKey.wasPressedThisFrame || kb.rightArrowKey.wasPressedThisFrame);
+                bool sDown = kb != null && (kb.sKey.wasPressedThisFrame || kb.downArrowKey.wasPressedThisFrame);
+                bool wDown = kb != null && (kb.wKey.wasPressedThisFrame || kb.upArrowKey.wasPressedThisFrame);
+                // フック：A か D をすばやく2回（ゲームパッドは X）
+                if (aDown) { if (now - m_TapA < 0.3f) { ThrowPunch(rs, armK, RobotState.PunchHook, false); m_TapA = -10f; } else m_TapA = now; }
+                if (dDown) { if (now - m_TapD < 0.3f) { ThrowPunch(rs, armK, RobotState.PunchHook, false); m_TapD = -10f; } else m_TapD = now; }
+                if (gp != null && gp.buttonWest.wasPressedThisFrame) ThrowPunch(rs, armK, RobotState.PunchHook, false);
+                // アッパー：S → W（ゲームパッドは RB）
+                if (sDown) m_TapS = now;
+                if ((wDown && now - m_TapS < 0.45f) || (gp != null && gp.rightShoulder.wasPressedThisFrame))
                 {
-                    if (m_Pull >= 0.85f)
-                    {
-                        m_Presses++;
-                        m_PunchFlash = 1f;
-                        m_PunchCd = 2.2f;
-                        m_Pull = 0f;
-                    }
-                    else m_Pull = Mathf.Max(0f, m_Pull - dt * 3f); // バネで戻る
+                    ThrowPunch(rs, armK, RobotState.PunchUpper, false);
+                    m_TapS = -10f;
+                    m_NoGuardUntil = now + 0.4f;   // アッパーの W はガードにしない
                 }
-                if (guard) m_Pull = Mathf.Max(0f, m_Pull - dt * 3f);
+                // ガード：W 長押し（ゲームパッドは LB）か、ガードボタンを押しているあいだ
+                bool guard = (kb != null && (kb.wKey.isPressed || kb.upArrowKey.isPressed) && now > m_NoGuardUntil) || m_MouseGuard || (gp != null && gp.leftShoulder.isPressed);
+                // ジャブ：Space をポンと1回。ストレート：Space を長押ししてレバーを引ききり、離す（光が真ん中のときに離すと会心）
+                if (spaceDown) m_SpaceDownAt = now;
+                bool holding = (space || m_DragPunch) && !guard;
+                bool charging = holding && (m_DragPunch || now - m_SpaceDownAt > 0.18f) && rs.ArmCd(armK) <= 0f;
+                if (charging)
+                {
+                    float before = m_Pull;
+                    m_Pull = Mathf.Min(1f, m_Pull + dt / 0.5f);
+                    if (before < 0.85f && m_Pull >= 0.85f) m_FullAt = now;
+                }
+                if (!holding && m_WasHolding)
+                {
+                    if (m_Pull >= 0.85f) ThrowPunch(rs, armK, RobotState.PunchStraight, CritNow(now));
+                    else if (m_Pull < 0.2f && now - m_SpaceDownAt <= 0.2f) ThrowPunch(rs, armK, RobotState.PunchJab, false);
+                }
+                if (!holding) m_Pull = Mathf.MoveTowards(m_Pull, 0f, dt * 4f);   // バネで戻る
+                m_WasHolding = holding;
                 Held = guard;
                 break;
             }
             case StationType.Head:
             {
+                // 機関銃モードの切り替え：Q（ゲームパッドは X）
+                if ((kb != null && kb.qKey.wasPressedThisFrame) || (gp != null && gp.buttonWest.wasPressedThisFrame)) rs.SetGunModeRpc(!rs.GunMode.Value);
+                if (rs.GunMode.Value)
+                {
+                    // 一人称：A/D で左右、W/S で上下、Space 長押しで連射
+                    Stick = new Vector2(x, y);
+                    Held = space || m_MouseFire;
+                    break;
+                }
                 float aim = rs.AimHead.Value;
                 if (Mathf.Abs(x) > 0.1f) { m_HeadTarget = float.NaN; Stick = new Vector2(x, 0f); }
                 else if (!float.IsNaN(m_HeadTarget))
@@ -200,6 +229,32 @@ public class StationUI : MonoBehaviour
     float m_RocketConfirmT = -10f;   // 1回目を押した時刻（3秒以内にもう一度押すと発射）
 
     /// <summary>ロケットパンチは一度きり（腕も自分も戻らない）なので、2回押したら発射する</summary>
+    // ---- パンチの入力の記録
+    float m_TapA = -10f, m_TapD = -10f, m_TapS = -10f, m_NoGuardUntil, m_SpaceDownAt = -10f, m_FullAt;
+    bool m_WasHolding;
+    string m_LastPunchLabel = "";
+    float m_NoEnergyAt = -10f;
+
+    /// <summary>ストレートの会心：レバーを引ききると光が左右に動き、真ん中のときに離すと会心</summary>
+    float CritPhase(float now) => Mathf.PingPong((now - m_FullAt) * 1.6f, 1f);
+    bool CritNow(float now) => Mathf.Abs(CritPhase(now) - 0.5f) < 0.13f;
+
+    void ThrowPunch(RobotState rs, int k, int kind, bool crit)
+    {
+        if (rs.ArmCd(k) > 0f) return;
+        if (rs.ArmEnergy(k) < RobotState.PunchEnergy[kind]) { m_NoEnergyAt = Time.time; return; }
+        rs.ArmPunchRpc(kind, crit);
+        m_PunchFlash = 1f;
+        m_LastPunchLabel = crit ? "会心！" : RobotState.PunchNames[kind];
+        m_Pull = 0f;
+    }
+
+    void TryKick(RobotState rs, int leg)
+    {
+        if (rs.KickCd(leg) > 0f || rs.Power.Value < 6f || !rs.LegWorks(leg)) return;
+        rs.KickRpc();
+    }
+
     void TryLaunchRocket(RobotState rs, int k)
     {
         if (rs.ArmAway(k) || rs.Power.Value < 10f) return;
@@ -254,6 +309,8 @@ public class StationUI : MonoBehaviour
         Styles(s);
 
         var def = Stations.All[m_Station];
+        // 機関銃モードのあいだは、全画面の照準を出す
+        if (def.Type == StationType.Head && rs.GunMode.Value) { DrawGunHud(rs, s); return; }
         // ロケットパンチを操縦しているあいだは、操作盤のかわりに全画面の照準を出す
         if (def.Type == StationType.Arm)
         {
@@ -348,13 +405,27 @@ public class StationUI : MonoBehaviour
         GUI.Label(new Rect(rx + 170 * s, by + 18 * s, rw - 170 * s, 40 * s), $"<b>{dir}</b>", m_Text);
 
         // ブレーキボタン
-        m_BrakeRect = new Rect(rx + 20 * s, a.yMax - 52 * s, rw - 40 * s, 40 * s);
+        m_BrakeRect = new Rect(rx + 20 * s, a.yMax - 52 * s, (rw - 40 * s) * 0.48f, 40 * s);
+        // キックボタン（ブレーキの右）：止まって前を蹴る。強くて敵が吹っ飛ぶ
+        {
+            int leg = left ? 0 : 1;
+            float kc = rs.KickCd(leg);
+            bool ready = kc <= 0f && rs.Power.Value >= 6f;
+            var kb2 = new Rect(m_BrakeRect.xMax + 8 * s, m_BrakeRect.y, (rw - 40 * s) * 0.52f - 8 * s, 40 * s);
+            UIDraw.Fill(kb2, ready ? Prims.Hex("#ff7a1a") * (0.85f + Mathf.Abs(Mathf.Sin(Time.time * 3f)) * 0.15f) : new Color(0.25f, 0.27f, 0.3f));
+            UIDraw.Frame(kb2, ready ? Color.white : new Color(0.1f, 0.1f, 0.1f), 2f);
+            var ks = new GUIStyle(m_Center);
+            ks.normal.textColor = ready ? Color.white : new Color(0.7f, 0.74f, 0.78f);
+            GUI.Label(kb2, ready ? "キック（F）" : kc > 0f ? $"キック あと{Mathf.CeilToInt(kc)}秒" : "動力が足りない", ks);
+            var ev = Event.current;
+            if (ready && ev.type == EventType.MouseDown && kb2.Contains(ev.mousePosition)) { TryKick(rs, leg); ev.Use(); }
+        }
         UIDraw.Fill(m_BrakeRect, new Color(0.55f, 0.12f, 0.08f));
         UIDraw.Frame(m_BrakeRect, Prims.Hex("#ff6a4a"), 2f);
         GUI.Label(m_BrakeRect, "ブレーキ（Space）", m_Center);
         if (hydraulicOk && e.type == EventType.MouseDown && m_BrakeRect.Contains(e.mousePosition)) { m_Presses++; m_LegTarget = float.NaN; e.Use(); }
 
-        string help = "W/S かレバーをドラッグして倒す。両脚そろえると前進、差をつけると曲がる";
+        string help = "W/S かレバーをドラッグして倒す。両脚そろえると前進、差をつけると曲がる。F でキック（止まって前を蹴る。敵が吹っ飛ぶ）";
         GUI.Label(new Rect(rx, by + bh + 26 * s, rw, 46 * s), help, m_Small);
 
         // ももの油圧が切れていると脚が動かない：操作盤全体を赤く覆って知らせる
@@ -416,10 +487,28 @@ public class StationUI : MonoBehaviour
         float ky = track.y + m_Pull * (track.height - 30 * s);
         UIDraw.Line(new Vector2(track.center.x, track.y), new Vector2(track.center.x, ky + 15 * s), 10 * s, new Color(0.5f, 0.55f, 0.6f));
         var knob = new Rect(track.x - 14 * s, ky, track.width + 28 * s, 30 * s);
-        UIDraw.Fill(knob, m_PunchCd > 0f ? new Color(0.4f, 0.4f, 0.42f) : Prims.Hex("#ff9a3c"));
+        int armK = left ? 0 : 1;
+        float cd = rs.ArmCd(armK);
+        UIDraw.Fill(knob, cd > 0f ? new Color(0.4f, 0.4f, 0.42f) : Prims.Hex("#ff9a3c"));
         UIDraw.Frame(knob, new Color(0.1f, 0.1f, 0.1f), 2f);
         if (m_PunchFlash > 0f) UIDraw.Frame(new Rect(track.x - 20 * s, track.y - 6 * s, track.width + 40 * s, track.height + 12 * s), new Color(1f, 0.85f, 0.3f, m_PunchFlash), 4 * s);
-        string state = m_PunchCd > 0f ? $"冷却中 {m_PunchCd:0.0}秒" : m_Pull >= 0.85f ? "<color=#7dff6a>離して叩き込め！</color>" : m_Pull > 0f ? "引いている…" : "パンチレバー";
+        // 会心のタイミング：引ききると、レバーの上の横棒を光が左右に動く。真ん中（緑）で離すと会心
+        if (m_Pull >= 0.85f)
+        {
+            var cb = new Rect(track.x - 40 * s, track.y - 18 * s, track.width + 80 * s, 12 * s);
+            UIDraw.Fill(cb, new Color(0.05f, 0.06f, 0.07f));
+            UIDraw.Fill(new Rect(cb.x + cb.width * 0.37f, cb.y, cb.width * 0.26f, cb.height), new Color(0.3f, 0.9f, 0.35f, 0.8f));
+            float ph = CritPhase(Time.time);
+            UIDraw.Fill(new Rect(cb.x + cb.width * ph - 3 * s, cb.y - 3 * s, 6 * s, cb.height + 6 * s), CritNow(Time.time) ? Color.white : Prims.Hex("#ffd23f"));
+        }
+        // 出したパンチの名前
+        if (m_PunchFlash > 0f && m_LastPunchLabel.Length > 0)
+        {
+            var ps = new GUIStyle(m_Center) { fontSize = Mathf.RoundToInt(20 * s) };
+            ps.normal.textColor = new Color(1f, 0.85f, 0.3f, m_PunchFlash);
+            GUI.Label(new Rect(track.x - 80 * s, track.y + track.height * 0.4f, track.width + 160 * s, 30 * s), m_LastPunchLabel, ps);
+        }
+        string state = cd > 0f ? $"次まで {cd:0.0}秒" : m_Pull >= 0.85f ? "<color=#7dff6a>光が真ん中で離せ！</color>" : m_Pull > 0f ? "引いている…" : "パンチレバー";
         GUI.Label(new Rect(track.x - 60 * s, track.yMax + 6 * s, track.width + 120 * s, 22 * s), $"<b>{state}</b>", m_Center);
         if (e.type == EventType.MouseDown && knob.Contains(e.mousePosition)) { m_DragPunch = true; e.Use(); }
         if (e.type == EventType.MouseUp) m_DragPunch = false;
@@ -460,7 +549,25 @@ public class StationUI : MonoBehaviour
             if (ready && e.type == EventType.MouseDown && rb.Contains(e.mousePosition)) { TryLaunchRocket(rs, k); e.Use(); }
         }
 
-        string help = "Space（か S・レバーをドラッグ）で引いて、引ききったら離すとパンチ。W 長押しでガード。F を2回でロケットパンチ（一度きりの切り札）";
+        // 腕のエネルギー（パンチとガードで減る。肩の充電器で充電）
+        {
+            int k = left ? 0 : 1;
+            float en = rs.ArmEnergy(k) / RobotState.ArmEnergyMax;
+            var eb = new Rect(a.x, a.y + 2 * s, a.width * 0.5f, 18 * s);
+            UIDraw.Fill(eb, new Color(0, 0, 0, 0.6f));
+            var ec = en < 0.25f ? (Mathf.Sin(Time.time * 8f) > 0f ? Prims.Hex("#ff4a4a") : Prims.Hex("#7a1a1a")) : Prims.Hex("#4fd2ff");
+            UIDraw.Fill(new Rect(eb.x, eb.y, eb.width * en, eb.height), ec);
+            UIDraw.Frame(eb, new Color(1, 1, 1, 0.4f), 1.5f);
+            GUI.Label(new Rect(eb.x + 6 * s, eb.y - 2 * s, eb.width, eb.height + 4 * s), $"<b>腕のエネルギー {Mathf.FloorToInt(rs.ArmEnergy(k))}</b>", m_Small);
+            if (en < 0.08f || Time.time - m_NoEnergyAt < 1.5f)
+            {
+                var warn = new GUIStyle(m_Center) { fontSize = Mathf.RoundToInt(16 * s) };
+                warn.normal.textColor = Prims.Hex("#ff8a6a");
+                GUI.Label(new Rect(a.x, eb.yMax + 2 * s, a.width * 0.6f, 22 * s), "エネルギー切れ！ 肩の充電器で充電してもらおう", warn);
+            }
+        }
+
+        string help = "ジャブ：Space をポン　ストレート：Space 長押し→離す（光が真ん中で会心）\nフック：A か D を2回　アッパー：S→W　ガード：W 長押し　ロケットパンチ：F を2回";
         GUI.Label(new Rect(a.x, a.yMax - 44 * s, a.width, 44 * s), help, m_Small);
 
         // 肩の配線が切れていると腕が動かない：操作盤全体を赤く覆って知らせる
@@ -474,6 +581,55 @@ public class StationUI : MonoBehaviour
             string side = left ? "左" : "右";
             GUI.Label(new Rect(a.x, a.center.y - 50 * s, a.width, 40 * s), $"⚠ {side}腕が動かない", big);
             GUI.Label(new Rect(a.x, a.center.y, a.width, 50 * s), $"{side}肩の配線が切れている。\n{side}肩（胸の上の段の{(left ? "左" : "右")}端）の装置を直そう", m_Center);
+        }
+    }
+
+    // ---------------- 機関銃（全画面の一人称）
+
+    void DrawGunHud(RobotState rs, float s)
+    {
+        float W = Screen.width, H = Screen.height;
+        var c = new Vector2(W * 0.5f, H * 0.5f);
+        var col = rs.GunOverheat.Value ? new Color(1f, 0.35f, 0.25f, 0.9f) : new Color(1f, 0.9f, 0.4f, 0.9f);
+        // 照準（十字と円）
+        UIDraw.Arc(c, 22 * s, 0f, 360f, 2f, col, 28);
+        for (int i = 0; i < 4; i++)
+        {
+            float a = i * 90f;
+            UIDraw.Line(UIDraw.Point(c, 30 * s, a), UIDraw.Point(c, 48 * s, a), 3f, col);
+        }
+        UIDraw.Dot(c, 4 * s, col);
+        // 上：説明
+        var top = new Rect(W * 0.5f - 320 * s, 16 * s, 640 * s, 70 * s);
+        UIDraw.Fill(top, new Color(0.04f, 0.05f, 0.06f, 0.75f));
+        var big = new GUIStyle(m_Center) { fontSize = Mathf.RoundToInt(22 * s) };
+        big.normal.textColor = Prims.Hex("#ffd84a");
+        GUI.Label(new Rect(top.x, top.y + 4 * s, top.width, 32 * s), "機関銃モード", big);
+        GUI.Label(new Rect(top.x, top.y + 38 * s, top.width, 26 * s), "A / D：左右　W / S：上下　Space 長押し：連射　Q：戻る", m_Center);
+        // 下：銃の熱（撃ちすぎるとオーバーヒート）
+        var hb = new Rect(W * 0.5f - 160 * s, H - 70 * s, 320 * s, 18 * s);
+        UIDraw.Fill(hb, new Color(0, 0, 0, 0.6f));
+        float heat = rs.GunHeat.Value;
+        UIDraw.Fill(new Rect(hb.x, hb.y, hb.width * heat, hb.height), Color.Lerp(Prims.Hex("#ffd84a"), Prims.Hex("#ff3b2a"), heat));
+        UIDraw.Frame(hb, new Color(1, 1, 1, 0.5f), 1.5f);
+        var hs = new GUIStyle(m_Center) { fontSize = Mathf.RoundToInt(15 * s) };
+        hs.normal.textColor = rs.GunOverheat.Value ? Prims.Hex("#ff6a4a") : Color.white;
+        GUI.Label(new Rect(hb.x, hb.y - 26 * s, hb.width, 24 * s), rs.GunOverheat.Value ? "オーバーヒート！ 冷えるまで撃てない" : "銃の熱", hs);
+        if (!rs.TaskOk(Tasks.Fuse))
+            GUI.Label(new Rect(c.x - 250 * s, c.y + 60 * s, 500 * s, 26 * s), "<color=#ff8a6a>ヒューズが切れていて撃てない（腰の装置を直そう）</color>", m_Center);
+        // 敵の方向
+        if (rs.BossAlive)
+        {
+            var to = rs.BossPos.Value - rs.Pos.Value;
+            float rel = Mathf.DeltaAngle((rs.Yaw.Value + rs.AimHead.Value) * Mathf.Rad2Deg, Mathf.Atan2(to.x, to.y) * Mathf.Rad2Deg);
+            if (Mathf.Abs(rel) >= 25f)
+            {
+                float side = Mathf.Sign(rel);
+                var ac = new Vector2(c.x + side * Mathf.Min(W * 0.42f, 420 * s), c.y);
+                var red = Prims.Hex("#ff3d7f") * (0.6f + Mathf.Abs(Mathf.Sin(Time.time * 6f)) * 0.4f);
+                UIDraw.Line(ac + new Vector2(-side * 24 * s, -22 * s), ac, 6 * s, red);
+                UIDraw.Line(ac + new Vector2(-side * 24 * s, 22 * s), ac, 6 * s, red);
+            }
         }
     }
 
@@ -591,7 +747,18 @@ public class StationUI : MonoBehaviour
                 front ? "<color=#7dff6a><b>胴の正面に敵</b></color>" : "<color=#93a6ae>胴の正面に\n敵がいない</color>", m_Small);
         }
 
-        string help = "A/D かレーダーをクリックして砲塔を回す。Space 長押しで連射";
+        // 機関銃モードのボタン（タイトルの行の右）
+        {
+            var gunBtn = new Rect(a.xMax - 200 * s, a.y - 40 * s, 200 * s, 32 * s);
+            UIDraw.Fill(gunBtn, Prims.Hex("#c99a1a"));
+            UIDraw.Frame(gunBtn, Color.white, 2f);
+            var gs2 = new GUIStyle(m_Center) { fontSize = Mathf.RoundToInt(14 * s) };
+            gs2.normal.textColor = Color.white;
+            GUI.Label(gunBtn, "機関銃モード（Q）", gs2);
+            if (e.type == EventType.MouseDown && gunBtn.Contains(e.mousePosition)) { rs.SetGunModeRpc(true); e.Use(); }
+        }
+
+        string help = "A/D かレーダーをクリックして砲塔を回す。Space 長押しで連射。Q で機関銃モード（一人称で狙う）";
         help += "\n必殺ビームは胸から胴の正面へ撃つ（脚の係に向きを合わせてもらおう）";
         if (!fuseOk) help = "<color=#ff8a6a>ヒューズが切れていて撃てない（腰の装置を直そう）</color>";
         else if (!rs.TaskOk(Tasks.Scope)) help += "\n<color=#ff8a6a>照準がずれている（頭の装置を直そう）</color>";

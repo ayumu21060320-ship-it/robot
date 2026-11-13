@@ -29,6 +29,7 @@ public class GameBootstrap : MonoBehaviour
     bool m_Piloting;      // ロケットパンチを操縦中（外の画面を全画面にしている）
     bool m_Spectating;    // ロケットパンチで飛んでいって観戦中（外の画面を全画面にしている）
     bool m_FullExterior;
+    bool m_GunCam;        // 機関銃モード（一人称、全画面）
 
     string m_RoomInput = "";
     string m_UrlInput;
@@ -123,9 +124,12 @@ public class GameBootstrap : MonoBehaviour
             if (rsP.RocketState(arm) == RobotState.RocketFlying) fist = RobotVisual.Instance.RocketFist(arm);
         }
         bool piloting = fist != null;
+        // 機関銃モード：頭の位置から一人称で見る
+        bool gunCam = rsP != null && local != null && local.Station.Value == Stations.Head && rsP.GunMode.Value && RobotVisual.Instance != null;
         // 観戦中（ロケットパンチで飛んでいった）も、外の画面を全画面にする
         bool spectating = local != null && local.Spectating.Value;
-        bool full = piloting || spectating;
+        bool full = piloting || spectating || gunCam;
+        m_GunCam = gunCam;
         m_Piloting = piloting;
         m_Spectating = spectating;
         if (full != m_FullExterior)
@@ -134,7 +138,17 @@ public class GameBootstrap : MonoBehaviour
             m_InteriorCam.enabled = !full;
             m_ExteriorCam.rect = full ? new Rect(0f, 0f, 1f, 1f) : new Rect(0.5f, 0f, 0.5f, 1f);
         }
-        m_ExteriorCam.fieldOfView = piloting ? 70f : 55f;
+        m_ExteriorCam.fieldOfView = piloting || gunCam ? 70f : 55f;
+        if (gunCam)
+        {
+            float yawDeg = (rsP.Yaw.Value + rsP.AimHead.Value) * Mathf.Rad2Deg;
+            var rot = Quaternion.Euler(-rsP.GunPitch.Value * Mathf.Rad2Deg, yawDeg, 0f);
+            var gunPos = RobotVisual.Instance.HeadPosition + Vector3.up * 2.2f + rot * Vector3.forward * 2.5f;
+            m_ExtCamPos = gunPos;
+            m_ExtCamLook = gunPos + rot * Vector3.forward * 30f;
+            m_ExteriorCam.transform.SetPositionAndRotation(gunPos + UnityEngine.Random.insideUnitSphere * RobotVisual.Shake * 0.15f, rot);
+            return;
+        }
         if (piloting)
         {
             var camPos = fist.position - fist.forward * 9f + Vector3.up * 3f;
@@ -220,6 +234,17 @@ public class GameBootstrap : MonoBehaviour
             m_Interior.ReactorIntake.color = new Color(c.r, c.g, c.b, 0.35f + Mathf.Abs(Mathf.Sin(Time.time * 3f)) * 0.35f);
         }
 
+        // 腕の充電器の目盛り（腕のエネルギー。少ないと赤く点滅）
+        for (int k = 0; k < 2; k++)
+        {
+            float en = rs != null ? rs.ArmEnergy(k) / RobotState.ArmEnergyMax : 1f;
+            var cf = m_Interior.ChargerFill[k];
+            var cp = ArmChargers.Pos[k];
+            float fw = 1.16f * Mathf.Max(0.001f, en);
+            cf.size = new Vector2(fw, 0.18f);
+            cf.transform.localPosition = new Vector3(cp.x - 0.58f + fw * 0.5f, 0.035f, cp.y + 1.86f);
+            cf.color = en < 0.25f ? (Mathf.Sin(Time.time * 8f) > 0f ? Prims.Hex("#ff4a4a") : Prims.Hex("#7a1a1a")) : Prims.Hex("#4fd2ff");
+        }
         for (int k = 0; k < 2; k++)
         {
             bool away = rs != null && rs.ArmAway(k);
@@ -392,9 +417,10 @@ public class GameBootstrap : MonoBehaviour
         }
         var rs = RobotState.Instance;
         bool lobby = rs != null && rs.GameState.Value == RobotState.Lobby;
-        if (m_Piloting)
+        if (m_Piloting || m_GunCam)
         {
             // 操縦の照準は StationUI が出す。ここでは敵の大技などの警告だけ
+            DrawPopups();
             DrawStatus();
             DrawBossWarnings(true);
             DrawBuffBanner();
@@ -403,6 +429,7 @@ public class GameBootstrap : MonoBehaviour
         }
         if (m_Spectating)
         {
+            DrawPopups();
             DrawStatus();
             DrawBossWarnings(true);
             DrawBuffBanner();
@@ -427,7 +454,7 @@ public class GameBootstrap : MonoBehaviour
         DrawPrompt();
         DrawTeleportFlash();
         DrawBuffBanner();
-        if (!lobby) { DrawBossWarnings(false); DrawWaveBanner(); }
+        if (!lobby) { DrawBossWarnings(false); DrawWaveBanner(); DrawPopups(); }
         if (RobotVisual.HitFlash > 0f) DrawRect(new Rect(Screen.width * 0.5f, 0, Screen.width * 0.5f, Screen.height), new Color(1f, 0.2f, 0.1f, RobotVisual.HitFlash * 0.25f));
     }
 
@@ -627,6 +654,47 @@ public class GameBootstrap : MonoBehaviour
         big.normal.textColor = Prims.Hex("#ffb000");
         GUI.Label(new Rect(r.x, r.y + 4 * s, r.width, 34 * s), "観戦中", big);
         GUI.Label(new Rect(r.x, r.y + 38 * s, r.width, 26 * s), "ロケットパンチで腕と一緒に飛んでいった。次の試合から、また乗り込める", new GUIStyle(m_Small) { alignment = TextAnchor.MiddleCenter });
+    }
+
+    /// <summary>「会心！」「カウンター！」などの文字を、外の画面の当たった場所に出す（ふわっと上がって消える）</summary>
+    void DrawPopups()
+    {
+        var v = RobotVisual.Instance;
+        var rs = RobotState.Instance;
+        if (v == null || rs == null) return;
+        float s = m_Scale;
+        float xMin = m_FullExterior ? 0f : Screen.width * 0.5f;
+        for (int i = v.Popups.Count - 1; i >= 0; i--)
+        {
+            var p = v.Popups[i];
+            float t = Time.time - p.T;
+            if (t > 1.4f) { v.Popups.RemoveAt(i); continue; }
+            var sp = m_ExteriorCam.WorldToScreenPoint(p.Pos + Vector3.up * t * 6f);
+            if (sp.z < 0f || sp.x < xMin || sp.x > Screen.width) continue;
+            float a = t < 1f ? 1f : 1f - (t - 1f) / 0.4f;
+            float pop = t < 0.12f ? 1f + (0.12f - t) * 4f : 1f;
+            var st = new GUIStyle(m_Big) { fontSize = Mathf.RoundToInt((p.Big ? 34 : 24) * s * pop) };
+            var col = p.Big ? Prims.Hex("#ffe14a") : Color.white;
+            var r = new Rect(sp.x - 220 * s, Screen.height - sp.y - 30 * s, 440 * s, 60 * s);
+            st.normal.textColor = new Color(0f, 0f, 0f, a * 0.8f);
+            GUI.Label(new Rect(r.x + 2 * s, r.y + 2 * s, r.width, r.height), p.Text, st);   // 影
+            st.normal.textColor = new Color(col.r, col.g, col.b, a);
+            GUI.Label(r, p.Text, st);
+        }
+        // コンボ数と、敵のスキ（カウンターのチャンス）
+        float x0 = m_FullExterior ? 0f : Screen.width * 0.5f, w = m_FullExterior ? Screen.width : Screen.width * 0.5f;
+        if (rs.Combo.Value >= 2)
+        {
+            var cs = new GUIStyle(m_Big) { fontSize = Mathf.RoundToInt(28 * s), alignment = TextAnchor.MiddleRight };
+            cs.normal.textColor = Prims.Hex("#ffb000");
+            GUI.Label(new Rect(x0, Screen.height * 0.45f, w - 24 * s, 40 * s), $"{rs.Combo.Value} コンボ", cs);
+        }
+        if (rs.CounterT.Value > 0f && rs.BossAlive)
+        {
+            var cs = new GUIStyle(m_Big) { fontSize = Mathf.RoundToInt(24 * s), alignment = TextAnchor.MiddleRight };
+            cs.normal.textColor = Prims.Hex("#7dff6a") * (0.7f + Mathf.Abs(Mathf.Sin(Time.time * 10f)) * 0.3f);
+            GUI.Label(new Rect(x0, Screen.height * 0.45f + 40 * s, w - 24 * s, 36 * s), "スキあり！ いま当てるとカウンター", cs);
+        }
     }
 
     int m_LastBuffId = -1;
@@ -870,8 +938,8 @@ public class GameBootstrap : MonoBehaviour
         bool legL = rs.LegWorks(0), legR = rs.LegWorks(1);
         bool boost = rs.PunchBoost.Value > 0f;
         int lines = (armL && armR ? 0 : 1) + (legL && legR ? 0 : 1) + (boost ? 1 : 0) + (lostL || lostR ? 1 : 0);
-        DrawRect(new Rect(x - 8 * s, y - 6 * s, w + 16 * s, (136 + lines * 22) * s), new Color(0.06f, 0.08f, 0.1f, 0.85f));
-        float ly = y + 128 * s;
+        DrawRect(new Rect(x - 8 * s, y - 6 * s, w + 16 * s, (150 + lines * 22) * s), new Color(0.06f, 0.08f, 0.1f, 0.85f));
+        float ly = y + 142 * s;
         if (!armL || !armR)
         {
             string stopped = !armL && !armR ? "両腕" : !armL ? "左腕" : "右腕";
@@ -901,6 +969,18 @@ public class GameBootstrap : MonoBehaviour
         DrawBar(new Rect(x, y + 60 * s, w, 18 * s), spc, Prims.Hex("#ffd23f") * blink, spLabel);
         int t = Mathf.FloorToInt(rs.Elapsed.Value);
         GUI.Label(new Rect(x, y + 82 * s, w, 24 * s), $"<color=#ffe14a><b>撃破 {rs.Kills.Value}体</b></color>　スコア <color=#ffb000>{rs.Score.Value}</color>　{t / 60}:{t % 60:00}", m_Label);
+        // 腕のエネルギー（小さな2本のゲージ）
+        {
+            float ew = (w - 8 * s) * 0.5f;
+            for (int k = 0; k < 2; k++)
+            {
+                if (rs.ArmLost(k)) continue;
+                var er = new Rect(x + k * (ew + 8 * s), y + 106 * s + 20 * s, ew, 10 * s);
+                float en = rs.ArmEnergy(k) / RobotState.ArmEnergyMax;
+                DrawRect(er, new Color(0, 0, 0, 0.6f));
+                DrawRect(new Rect(er.x, er.y, er.width * en, er.height), en < 0.25f ? Prims.Hex("#ff4a4a") : Prims.Hex("#4fd2ff"));
+            }
+        }
         if (rs.GuardL.Value || rs.GuardR.Value)
         {
             string g = rs.GuardL.Value && rs.GuardR.Value ? "両腕でガード中" : rs.GuardL.Value ? "左腕でガード中" : "右腕でガード中";
@@ -973,6 +1053,12 @@ public class GameBootstrap : MonoBehaviour
             int k = me.Carry.Value;
             where = "動力炉（エネルギーの入れ口）";
             hint = $"E でエネルギーを入れる → <color={EnergyCells.Hex(k)}><b>{EnergyCells.Effect(k)}</b></color>";
+        }
+        else if (me.NearCharger >= 0)
+        {
+            int k = me.NearCharger;
+            where = (k == 0 ? "左" : "右") + "腕の充電器";
+            hint = $"<b>Space 連打で充電</b>　腕のエネルギー {Mathf.FloorToInt(rs.ArmEnergy(k))} / {RobotState.ArmEnergyMax:0}（パンチとガードで減る）";
         }
         else if (me.NearCell >= 0 && rs.CellAt.Count == EnergyCells.Count && rs.CellAt[me.NearCell] >= 0)
         {

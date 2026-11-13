@@ -26,10 +26,30 @@ public class RobotState : NetworkBehaviour
     const float WalkAccel = 2.0f;        // 速さが変わる早さ（m/秒²）
     const float LeverRate = 0.45f;       // レバーを倒す速さ（1秒で 45%）
     const float ArmAimRate = 0.55f, HeadAimRate = 0.7f;
-    public const float PunchTime = 1.4f; // パンチの腕振り全体の時間（見た目と合わせる）
-    const float PunchHitDelay = 0.6f;    // 振りかぶってから当たるまで
-    const float PunchCooldown = 2.2f;
-    const float PunchDamage = 25f;       // ロボットの本命の攻撃なので強め（敵の体力の約1割）
+    // ---- パンチの種類（腕の席で、操作ごとに違うパンチが出る）
+    public const int PunchJab = 0, PunchStraight = 1, PunchHook = 2, PunchUpper = 3;
+    public static readonly string[] PunchNames = { "ジャブ", "ストレート", "フック", "アッパー" };
+    public static readonly float[] PunchDamage = { 10f, 25f, 18f, 40f };
+    public static readonly float[] PunchDelay = { 0.22f, 0.6f, 0.45f, 0.8f };   // 出してから当たるまで（見た目と合わせる）
+    public static readonly float[] PunchTimes = { 0.55f, 1.4f, 1.1f, 1.6f };    // 腕を振る全体の時間（見た目）
+    public static readonly float[] PunchCd = { 0.55f, 2.0f, 1.4f, 3.0f };        // 次のパンチまで
+    public static readonly float[] PunchEnergy = { 8f, 16f, 12f, 22f };          // 使う腕のエネルギー
+    public const float CritMul = 2f;          // ストレートの会心
+    public const float CounterMul = 3f;       // 敵のスキに当てる（カウンター）
+    public const float CounterWindow = 2.2f;  // 敵の攻撃が終わってからのスキの長さ
+    const float OneTwoWindow = 1.2f, OneTwoMul = 1.25f;   // 左右の腕で交互に当てる
+    const float ComboWindow = 2.5f, ComboStep = 0.12f, ComboMax = 1.6f;
+
+    // ---- 腕のエネルギー：パンチとガードで減り、自然には戻らない。肩の充電器で Space 連打して充電する
+    public const float ArmEnergyMax = 100f;
+    const float ArmChargePerPress = 7f, GuardEnergyCost = 4f;
+
+    // ---- キック（脚の席。キックのあいだは止まるが、強くて敵が吹っ飛ぶ）
+    const float KickDamage = 40f, KickDelay = 0.5f, KickPower = 6f, KickKnock = 45f;
+    public const float KickCooldown = 8f, KickTime = 1.3f;
+
+    // ---- 機関銃（頭部砲の席で切り替える。一人称で狙って連射する）
+    const float GunInterval = 0.09f, GunDamage = 0.8f, GunHeatPerShot = 0.045f, GunCool = 0.35f, GunPower = 0.15f;
 
     // ---- 巨大な敵（1体だけ）
     public const float BossMaxHp = 320f;          // 1体目の体力（2体目からは強くなる）
@@ -92,6 +112,22 @@ public class RobotState : NetworkBehaviour
     public NetworkVariable<bool> GuardR = new NetworkVariable<bool>();
     public NetworkVariable<int> PunchL = new NetworkVariable<int>();           // パンチするたびに +1（見た目の合図）
     public NetworkVariable<int> PunchR = new NetworkVariable<int>();
+    public NetworkVariable<int> PunchKindL = new NetworkVariable<int>(), PunchKindR = new NetworkVariable<int>();   // 今のパンチの種類（見た目用）
+    public NetworkVariable<float> ArmCdL = new NetworkVariable<float>(), ArmCdR = new NetworkVariable<float>();     // 次のパンチまで
+    public NetworkVariable<float> ArmEnergyL = new NetworkVariable<float>(ArmEnergyMax), ArmEnergyR = new NetworkVariable<float>(ArmEnergyMax);
+    public NetworkVariable<int> Combo = new NetworkVariable<int>();              // 今のコンボ数
+    public NetworkVariable<float> CounterT = new NetworkVariable<float>();        // 敵のスキの残り（カウンターできる）
+    public NetworkVariable<int> KickL = new NetworkVariable<int>(), KickR = new NetworkVariable<int>();   // キックするたびに +1（見た目の合図）
+    public NetworkVariable<float> KickCdL = new NetworkVariable<float>(), KickCdR = new NetworkVariable<float>();
+    public NetworkVariable<int> BossKnockId = new NetworkVariable<int>();       // 敵が吹っ飛ぶたびに +1（見た目の合図）
+    public NetworkVariable<bool> GunMode = new NetworkVariable<bool>();         // 頭部砲の席が機関銃モード（一人称）
+    public NetworkVariable<float> GunPitch = new NetworkVariable<float>();      // 機関銃の上下の向き（ラジアン、+ で上）
+    public NetworkVariable<float> GunHeat = new NetworkVariable<float>();       // 0～1。1 でオーバーヒート
+    public NetworkVariable<bool> GunOverheat = new NetworkVariable<bool>();
+    public float ArmCd(int k) => k == 0 ? ArmCdL.Value : ArmCdR.Value;
+    public float ArmEnergy(int k) => k == 0 ? ArmEnergyL.Value : ArmEnergyR.Value;
+    void SetArmEnergy(int k, float v) { v = Mathf.Clamp(v, 0f, ArmEnergyMax); if (k == 0) ArmEnergyL.Value = v; else ArmEnergyR.Value = v; }
+    public float KickCd(int leg) => leg == 0 ? KickCdL.Value : KickCdR.Value;
     public NetworkVariable<int> GameState = new NetworkVariable<int>(Playing);
     public NetworkVariable<int> Score = new NetworkVariable<int>();
     public NetworkVariable<float> Elapsed = new NetworkVariable<float>();
@@ -155,6 +191,14 @@ public class RobotState : NetworkBehaviour
     // ---- ホストだけが持つ計算用の情報
     readonly float[] m_Cooldown = new float[Stations.Count];
     readonly float[] m_PunchHitAt = { -1f, -1f };
+    readonly int[] m_PunchKind = new int[2];
+    readonly bool[] m_PunchCrit = new bool[2];
+    readonly float[] m_KickHitAt = { -1f, -1f };
+    float m_KickStopT;                 // キック中はタイタンが止まる
+    float m_LastHitT = -10f;
+    int m_LastHitArm = -1;
+    Vector2 m_KnockVel;                // 敵が吹っ飛ぶ速さ
+    float m_GunT;
     readonly Dictionary<ulong, int> m_LastAct = new Dictionary<ulong, int>();
     readonly List<Bolt> m_Bolts = new List<Bolt>();
     float m_Speed, m_Turn;
@@ -291,6 +335,13 @@ public class RobotState : NetworkBehaviour
     [Rpc(SendTo.ClientsAndHost)]
     void BoomFxRpc(Vector3 at, float size, Color color) { if (m_Visual) m_Visual.Boom(at, size, color); }
 
+    /// <summary>当たったときの文字（「会心！」「カウンター！」など）。big = 1 で大きく</summary>
+    [Rpc(SendTo.ClientsAndHost)]
+    void PopupFxRpc(Vector3 at, string text, int big) { if (m_Visual) m_Visual.Popup(at, text, big != 0); }
+
+    [Rpc(SendTo.ClientsAndHost)]
+    void GunFxRpc(Vector3 from, Vector3 to, bool hit) { if (m_Visual) m_Visual.SpawnTracer(from, to, hit); }
+
     [Rpc(SendTo.ClientsAndHost)]
     void HitFxRpc() { if (m_Visual) m_Visual.Hit(); }
 
@@ -343,6 +394,15 @@ public class RobotState : NetworkBehaviour
         m_SpecialT = -1f;
         m_Bolts.Clear();
         m_PunchHitAt[0] = m_PunchHitAt[1] = -1f;
+        m_KickHitAt[0] = m_KickHitAt[1] = -1f;
+        m_KickStopT = 0f;
+        m_KnockVel = Vector2.zero;
+        m_LastHitT = -10f;
+        Combo.Value = 0;
+        CounterT.Value = 0f;
+        ArmCdL.Value = ArmCdR.Value = KickCdL.Value = KickCdR.Value = 0f;
+        ArmEnergyL.Value = ArmEnergyR.Value = ArmEnergyMax;
+        GunMode.Value = false; GunPitch.Value = 0f; GunHeat.Value = 0f; GunOverheat.Value = false;
         foreach (var p in CrewPlayer.All) { p.Station.Value = -1; p.Spectating.Value = false; }
     }
 
@@ -357,6 +417,7 @@ public class RobotState : NetworkBehaviour
         int st = p.Station.Value;
         if (st >= 0 && st < Occupant.Count && Occupant[st] == (int)p.OwnerClientId + 1) Occupant[st] = 0;
         p.Station.Value = -1;
+        if (st == Stations.Head) { GunMode.Value = false; GunPitch.Value = 0f; }
     }
 
     Vector2 LocalToWorld(float lx, float lz)
@@ -417,22 +478,30 @@ public class RobotState : NetworkBehaviour
                     // ロケットパンチを飛ばしているあいだは、スティックで拳を操縦する（パンチもガードもできない）
                     if (ArmAway(k)) { m_RocketSteer[k] = stick; break; }
                     // ガード：長押ししているあいだ腕を顔の前で構える（パンチはできない）
-                    bool guard = held && power > 0.5f;
-                    if (guard) { power -= GuardPowerCost * dt; if (k == 0) guardL = true; else guardR = true; }
+                    bool guard = held && ArmEnergy(k) > 0.5f;   // ガードは腕のエネルギーを少しずつ使う
+                    if (guard) { SetArmEnergy(k, ArmEnergy(k) - GuardEnergyCost * dt); if (k == 0) guardL = true; else guardR = true; }
                     float aim = Mathf.Clamp((k == 0 ? aimL : aimR) + stick.x * ArmAimRate * dt, -0.8f, 0.8f);
                     if (k == 0) aimL = aim; else aimR = aim;
-                    if (!guard && pressed && m_Cooldown[i] <= 0f && power >= 4f)
-                    {
-                        m_Cooldown[i] = PunchCooldown;
-                        power -= 4f;
-                        m_PunchHitAt[k] = PunchHitDelay;
-                        if (k == 0) PunchL.Value++; else PunchR.Value++;
-                    }
+                    // パンチは ArmPunchRpc で（操作ごとに種類が違う）
                     break;
                 }
                 case StationType.Head:
                 {
                     aimH = Mathf.Clamp(aimH + stick.x * HeadAimRate * dt, -1.7f, 1.7f);
+                    if (GunMode.Value)
+                    {
+                        // 機関銃：W/S で上下、Space 長押しで連射（撃ちすぎるとオーバーヒート）
+                        GunPitch.Value = Mathf.Clamp(GunPitch.Value + stick.y * 0.6f * dt, -0.35f, 0.45f);
+                        if (held && !GunOverheat.Value && m_GunT <= 0f && power >= GunPower && TaskOk(Tasks.Fuse))
+                        {
+                            m_GunT = GunInterval;
+                            power -= GunPower;
+                            GunHeat.Value = Mathf.Min(1f, GunHeat.Value + GunHeatPerShot);
+                            if (GunHeat.Value >= 1f) GunOverheat.Value = true;
+                            FireGun(aimH);
+                        }
+                        break;
+                    }
                     // ヒューズが切れていると撃てない
                     if (held && m_Cooldown[i] <= 0f && power >= 1.2f && TaskOk(Tasks.Fuse))
                     {
@@ -474,6 +543,7 @@ public class RobotState : NetworkBehaviour
         float targetTurn = (legL - legR) * TurnSpeedMax * pf;
         // ジャイロが壊れていると、歩いているあいだ左右にふらつく
         if (!TaskOk(Tasks.Gyro) && Mathf.Abs(targetSpeed) > 0.3f) targetTurn += Mathf.Sin(Elapsed.Value * 0.9f) * 0.12f;
+        if (m_KickStopT > 0f) { m_KickStopT -= dt; targetSpeed = 0f; targetTurn = 0f; m_Speed = Mathf.MoveTowards(m_Speed, 0f, 12f * dt); }   // キック中は止まる
         m_Speed = Mathf.MoveTowards(m_Speed, targetSpeed, WalkAccel * dt);
         m_Turn = Mathf.MoveTowards(m_Turn, targetTurn, 0.15f * dt);
         float yaw = Yaw.Value + m_Turn * dt;
@@ -504,7 +574,26 @@ public class RobotState : NetworkBehaviour
             if (m_PunchHitAt[k] < 0f) continue;
             if (!TaskOk(k == 0 ? Tasks.WiresL : Tasks.WiresR)) { m_PunchHitAt[k] = -1f; continue; } // 振っている途中で配線が切れたら止まる
             m_PunchHitAt[k] -= dt;
-            if (m_PunchHitAt[k] <= 0f) { m_PunchHitAt[k] = -1f; PunchHit(k == 0 ? -1 : 1, k == 0 ? aimL : aimR); }
+            if (m_PunchHitAt[k] <= 0f) { m_PunchHitAt[k] = -1f; PunchHit(k, k == 0 ? aimL : aimR); }
+        }
+        for (int j = 0; j < 2; j++)
+        {
+            if (m_KickHitAt[j] < 0f) continue;
+            m_KickHitAt[j] -= dt;
+            if (m_KickHitAt[j] <= 0f) { m_KickHitAt[j] = -1f; KickHit(j); }
+        }
+        // 待ち時間・スキ・機関銃の熱
+        if (ArmCdL.Value > 0f) ArmCdL.Value = Mathf.Max(0f, ArmCdL.Value - dt);
+        if (ArmCdR.Value > 0f) ArmCdR.Value = Mathf.Max(0f, ArmCdR.Value - dt);
+        if (KickCdL.Value > 0f) KickCdL.Value = Mathf.Max(0f, KickCdL.Value - dt);
+        if (KickCdR.Value > 0f) KickCdR.Value = Mathf.Max(0f, KickCdR.Value - dt);
+        if (CounterT.Value > 0f) CounterT.Value = Mathf.Max(0f, CounterT.Value - dt);
+        if (Combo.Value > 0 && Time.time - m_LastHitT > ComboWindow) Combo.Value = 0;
+        m_GunT -= dt;
+        if (GunHeat.Value > 0f && (m_GunT < -0.15f || GunOverheat.Value))
+        {
+            GunHeat.Value = Mathf.Max(0f, GunHeat.Value - GunCool * dt);
+            if (GunHeat.Value <= 0f) GunOverheat.Value = false;
         }
 
         // 必殺技：ためてから撃つ
@@ -540,17 +629,166 @@ public class RobotState : NetworkBehaviour
         BoltFxRpc(new Vector3(start.x, 18.0f * TitanScale, start.y), yaw);
     }
 
-    void PunchHit(int side, float aim)
+    // ================================================================ パンチ・キック・機関銃
+
+    /// <summary>腕の席からパンチを出す（kind：ジャブ・ストレート・フック・アッパー。crit：ストレートの会心）</summary>
+    [Rpc(SendTo.Server)]
+    public void ArmPunchRpc(int kind, bool crit, RpcParams rpcParams = default)
     {
+        var p = GetPlayer(rpcParams.Receive.SenderClientId);
+        if (p == null || GameState.Value != Playing || kind < 0 || kind > 3) return;
+        int st = p.Station.Value;
+        if (st != Stations.LeftArm && st != Stations.RightArm) return;
+        int k = st == Stations.LeftArm ? 0 : 1;
+        if (ArmAway(k) || !TaskOk(k == 0 ? Tasks.WiresL : Tasks.WiresR) || ArmCd(k) > 0f || m_PunchHitAt[k] >= 0f) return;
+        if (ArmEnergy(k) < PunchEnergy[kind]) return;   // 腕のエネルギー切れ（肩の充電器で充電する）
+        SetArmEnergy(k, ArmEnergy(k) - PunchEnergy[kind]);
+        if (k == 0) ArmCdL.Value = PunchCd[kind]; else ArmCdR.Value = PunchCd[kind];
+        m_PunchKind[k] = kind;
+        m_PunchCrit[k] = crit && kind == PunchStraight;
+        m_PunchHitAt[k] = PunchDelay[kind];
+        if (k == 0) { PunchKindL.Value = kind; PunchL.Value++; } else { PunchKindR.Value = kind; PunchR.Value++; }
+    }
+
+    /// <summary>肩の充電器で Space を1回押した：その腕のエネルギーを少し充電する</summary>
+    [Rpc(SendTo.Server)]
+    public void ChargeArmRpc(int k, RpcParams rpcParams = default)
+    {
+        var p = GetPlayer(rpcParams.Receive.SenderClientId);
+        if (p == null || GameState.Value != Playing || k < 0 || k > 1 || p.Station.Value >= 0) return;
+        if (Vector2.Distance(p.Pos.Value, ArmChargers.Pos[k]) > ArmChargers.UseRange + 0.6f) return;
+        SetArmEnergy(k, ArmEnergy(k) + ArmChargePerPress);
+    }
+
+    void PunchHit(int k, float aim)
+    {
+        int side = k == 0 ? -1 : 1;
+        int kind = m_PunchKind[k];
         // 肩の関節から、腕を前に伸ばしたときの拳の位置（大きさに合わせて拡大）
         float reach = 8.4f * TitanScale, shoulder = 3.75f * TitanScale;
         var fist = LocalToWorld(side * shoulder + Mathf.Sin(aim) * reach, Mathf.Cos(aim) * reach);
-        if (BossAlive && Vector2.Distance(BossPos.Value, fist) < BossRadius + 4f)
-        {
-            DamageBoss(PunchBoost.Value > 0f ? PunchDamage * EnergyCells.PunchBoostMul : PunchDamage);
-            BoomFxRpc(new Vector3(fist.x, 15.4f * TitanScale, fist.y), 1.6f, new Color(1f, 0.82f, 0.25f));
-        }
+        float slack = kind == PunchHook ? 9f : 4f;   // フックは横から振るので当たりやすい
         CrushBuildings(fist, 5f);   // 拳の先のビルは一撃で崩れる
+        if (!BossAlive || Vector2.Distance(BossPos.Value, fist) >= BossRadius + slack) return;
+
+        float dmg = PunchDamage[kind];
+        string label = PunchNames[kind];
+        if (m_PunchCrit[k]) { dmg *= CritMul; label = "会心！"; }
+        if (PunchBoost.Value > 0f) dmg *= EnergyCells.PunchBoostMul;
+        // フック：振りかぶっている攻撃を止める
+        if (kind == PunchHook && BossAction.Value != BossIdle && BossAction.Value != BossMega) { EndBossAction(); label = "攻撃を止めた！"; }
+        dmg = RegisterHit(dmg, k, ref label);
+        var at = new Vector3(fist.x, 15.4f * TitanScale, fist.y);
+        BoomFxRpc(at, kind == PunchJab ? 0.9f : m_PunchCrit[k] || kind == PunchUpper ? 2.4f : 1.6f, new Color(1f, 0.82f, 0.25f));
+        PopupFxRpc(at + Vector3.up * 6f, Combo.Value >= 2 ? $"{label}　{Combo.Value}コンボ" : label, kind == PunchUpper || m_PunchCrit[k] || label != PunchNames[kind] ? 1 : 0);
+        if (kind == PunchUpper) Knock(0.35f);    // アッパー：少し後ろへ浮かせる
+        DamageBoss(dmg);
+    }
+
+    /// <summary>
+    /// 当たったときの共通のボーナス：カウンター（敵のスキ）・ワンツー（左右交互）・コンボ（続けて当てる）。
+    /// arm は当てた腕（0・1）、脚なら -1。戻り値は倍率をかけたダメージ
+    /// </summary>
+    float RegisterHit(float dmg, int arm, ref string label)
+    {
+        float now = Time.time;
+        if (CounterT.Value > 0f) { dmg *= CounterMul; CounterT.Value = 0f; label = "カウンター！"; }
+        else if (arm >= 0 && m_LastHitArm >= 0 && arm != m_LastHitArm && now - m_LastHitT < OneTwoWindow) { dmg *= OneTwoMul; label = "ワンツー！"; }
+        Combo.Value = now - m_LastHitT < ComboWindow ? Combo.Value + 1 : 1;
+        dmg *= Mathf.Min(ComboMax, 1f + ComboStep * (Combo.Value - 1));
+        m_LastHitT = now;
+        m_LastHitArm = arm;
+        return dmg;
+    }
+
+    /// <summary>敵を後ろへ吹っ飛ばす（power：強さ 0～1）</summary>
+    void Knock(float power)
+    {
+        var dir = BossPos.Value - Pos.Value;
+        if (dir.sqrMagnitude < 0.01f) dir = new Vector2(Mathf.Sin(Yaw.Value), Mathf.Cos(Yaw.Value));
+        m_KnockVel = dir.normalized * KickKnock * power;
+        BossKnockId.Value++;
+    }
+
+    /// <summary>脚の席からキックを出す（その脚で前を蹴る。キックのあいだタイタンは止まる）</summary>
+    [Rpc(SendTo.Server)]
+    public void KickRpc(RpcParams rpcParams = default)
+    {
+        var p = GetPlayer(rpcParams.Receive.SenderClientId);
+        if (p == null || GameState.Value != Playing) return;
+        int st = p.Station.Value;
+        if (st != Stations.LeftLeg && st != Stations.RightLeg) return;
+        int j = st == Stations.LeftLeg ? 0 : 1;
+        if (!LegWorks(j) || KickCd(j) > 0f || m_KickHitAt[0] >= 0f || m_KickHitAt[1] >= 0f || Power.Value < KickPower) return;
+        Power.Value -= KickPower;
+        if (j == 0) { KickCdL.Value = KickCooldown; KickL.Value++; } else { KickCdR.Value = KickCooldown; KickR.Value++; }
+        m_KickHitAt[j] = KickDelay;
+        m_KickStopT = KickTime;
+    }
+
+    void KickHit(int j)
+    {
+        float side = j == 0 ? -1f : 1f;
+        var foot = LocalToWorld(side * 1.2f * TitanScale, 9f * TitanScale);
+        CrushBuildings(foot, 7f);
+        if (!BossAlive) return;
+        var to = BossPos.Value - Pos.Value;
+        float ang = Mathf.Abs(Mathf.DeltaAngle(Yaw.Value * Mathf.Rad2Deg, Mathf.Atan2(to.x, to.y) * Mathf.Rad2Deg));
+        if (Vector2.Distance(BossPos.Value, foot) >= BossRadius + 9f || ang > 60f) return;
+        string label = "キック！ 吹っ飛んだ！";
+        float dmg = RegisterHit(KickDamage, -1, ref label);
+        if (BossAction.Value != BossIdle && BossAction.Value != BossMega) EndBossAction();
+        var at = new Vector3(foot.x, 6f * TitanScale, foot.y);
+        BoomFxRpc(at, 3f, new Color(1f, 0.7f, 0.3f));
+        PopupFxRpc(at + Vector3.up * 12f, label, 1);
+        Knock(1f);
+        DamageBoss(dmg);
+    }
+
+    /// <summary>頭部砲の席で、機関銃モード（一人称）に切り替える</summary>
+    [Rpc(SendTo.Server)]
+    public void SetGunModeRpc(bool on, RpcParams rpcParams = default)
+    {
+        var p = GetPlayer(rpcParams.Receive.SenderClientId);
+        if (p == null || p.Station.Value != Stations.Head) return;
+        GunMode.Value = on;
+        if (!on) GunPitch.Value = 0f;
+    }
+
+    /// <summary>機関銃を1発撃つ（まっすぐ飛ぶ弾。敵の体に当たればダメージ）</summary>
+    void FireGun(float aimH)
+    {
+        float spread = TaskOk(Tasks.Scope) ? 0.015f : 0.09f;   // 照準が壊れていると散らばる
+        float yaw = Yaw.Value + aimH + Random.Range(-spread, spread);
+        float pitch = GunPitch.Value + Random.Range(-spread, spread);
+        float c = Mathf.Cos(aimH), sn = Mathf.Sin(aimH);
+        var o2 = LocalToWorld((1.05f * c + 1.2f * sn) * TitanScale, (0.25f - 1.05f * sn + 1.2f * c) * TitanScale);
+        var from = new Vector3(o2.x, 18.0f * TitanScale, o2.y);
+        var d2 = new Vector2(Mathf.Sin(yaw), Mathf.Cos(yaw));
+        float tanP = Mathf.Tan(pitch);
+        float maxT = 220f;
+        if (tanP < -0.001f) maxT = Mathf.Min(maxT, from.y / -tanP);   // 地面に当たる
+        bool hit = false;
+        float hitT = maxT;
+        if (BossAlive)
+        {
+            // 敵の体（円柱）とまっすぐな線が交わるか
+            var oc = o2 - BossPos.Value;
+            float bq = Vector2.Dot(oc, d2), cq = oc.sqrMagnitude - BossRadius * BossRadius;
+            float disc = bq * bq - cq;
+            if (disc >= 0f)
+            {
+                float t = -bq - Mathf.Sqrt(disc);
+                if (t > 0f && t < maxT)
+                {
+                    float y = from.y + tanP * t;
+                    if (y > 0f && y < 44f) { hit = true; hitT = t; }
+                }
+            }
+        }
+        var to = from + new Vector3(d2.x, tanP, d2.y) * hitT;
+        GunFxRpc(from, to, hit);
+        if (hit) DamageBoss(GunDamage);
     }
 
     // ================================================================ エネルギーセル（やってもやらなくてもよい強化）
@@ -608,7 +846,7 @@ public class RobotState : NetworkBehaviour
             case EnergyCells.Green: Hull.Value = Mathf.Min(MaxHull, Hull.Value + EnergyCells.HullHeal); break;
             case EnergyCells.Red: PunchBoost.Value = EnergyCells.PunchBoostTime; break;
             case EnergyCells.Blue: if (!SpecialCharging.Value) Special.Value = Mathf.Min(SpecialMax, Special.Value + EnergyCells.SpecialGain); break;
-            default: Power.Value = MaxPower; break;
+            default: Power.Value = MaxPower; ArmEnergyL.Value = ArmEnergyR.Value = ArmEnergyMax; break;
         }
         BuffKind.Value = kind;
         BuffId.Value++;
@@ -707,6 +945,20 @@ public class RobotState : NetworkBehaviour
         var to = Pos.Value - bp;
         float dist = to.magnitude;
         float want = Mathf.Atan2(to.x, to.y);
+
+        // 吹っ飛ばされている：後ろへすべっていく（そのあいだは何もできない）
+        if (m_KnockVel.sqrMagnitude > 1f)
+        {
+            var nbp = bp + m_KnockVel * dt;
+            float lim = ExteriorWorld.Bounds - 15f;
+            nbp.x = Mathf.Clamp(nbp.x, -lim, lim); nbp.y = Mathf.Clamp(nbp.y, -lim, lim);
+            BossPos.Value = nbp;
+            CrushBuildings(nbp, BossRadius, false);
+            m_KnockVel *= Mathf.Exp(-3f * dt);
+            BossSpeed.Value = 0f;
+            return;
+        }
+        m_KnockVel = Vector2.zero;
 
         // チャンスタイム：倒れていて動かない・攻撃しない
         if (BossStun.Value > 0f)
@@ -935,6 +1187,7 @@ public class RobotState : NetworkBehaviour
     void EndBossAction()
     {
         BossAction.Value = BossIdle;
+        CounterT.Value = CounterWindow;   // 攻撃のあとはスキができる（カウンターのチャンス）
         m_BossCd = Random.Range(6f, 9f);
     }
 
