@@ -94,7 +94,6 @@ public class RobotState : NetworkBehaviour
     readonly float[] m_PunchHitAt = { -1f, -1f };
     readonly Dictionary<ulong, int> m_LastAct = new Dictionary<ulong, int>();
     readonly List<Bolt> m_Bolts = new List<Bolt>();
-    float m_TaskBreakT;
     float m_Speed, m_Turn;
     // 敵の行動
     float m_BossCd, m_BossActT;
@@ -261,7 +260,6 @@ public class RobotState : NetworkBehaviour
         Special.Value = 0f;
         SpecialCharging.Value = false;
         m_SpecialT = -1f;
-        m_TaskBreakT = 45f;   // 最初の故障は少し遅く
         m_Bolts.Clear();
         m_PunchHitAt[0] = m_PunchHitAt[1] = -1f;
         foreach (var p in CrewPlayer.All) p.Station.Value = -1;
@@ -379,13 +377,7 @@ public class RobotState : NetworkBehaviour
             if (i == Stations.RightLeg) legR = Mathf.MoveTowards(legR, 0f, 0.5f * dt);
         }
 
-        // ---- 整備タスクの故障
-        m_TaskBreakT -= dt;
-        if (m_TaskBreakT <= 0f)
-        {
-            BreakRandomTask();
-            m_TaskBreakT = Random.Range(40f, 60f);   // 故障はたまにだけ
-        }
+        // ---- 整備タスクの故障（時間では壊れない。敵の攻撃を受けたときだけ壊れる：RobotHit・振り下ろし・足踏み）
         // 油圧の故障で、すでに倒れているレバーも戻される
         if (!LegWorks(0)) legL = 0f;   // 油圧が切れた脚は止まる
         if (!LegWorks(1)) legR = 0f;
