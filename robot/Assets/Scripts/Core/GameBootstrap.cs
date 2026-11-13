@@ -26,7 +26,9 @@ public class GameBootstrap : MonoBehaviour
     InteriorMap.View m_Interior;
     Vector3 m_ExtCamPos, m_ExtCamLook;
     float m_IntSize = 9f;
-    bool m_Piloting;   // ロケットパンチを操縦中（外の画面を全画面にしている）
+    bool m_Piloting;      // ロケットパンチを操縦中（外の画面を全画面にしている）
+    bool m_Spectating;    // ロケットパンチで飛んでいって観戦中（外の画面を全画面にしている）
+    bool m_FullExterior;
 
     string m_RoomInput = "";
     string m_UrlInput;
@@ -121,13 +123,18 @@ public class GameBootstrap : MonoBehaviour
             if (rsP.RocketState(arm) == RobotState.RocketFlying) fist = RobotVisual.Instance.RocketFist(arm);
         }
         bool piloting = fist != null;
-        if (piloting != m_Piloting)
+        // 観戦中（ロケットパンチで飛んでいった）も、外の画面を全画面にする
+        bool spectating = local != null && local.Spectating.Value;
+        bool full = piloting || spectating;
+        m_Piloting = piloting;
+        m_Spectating = spectating;
+        if (full != m_FullExterior)
         {
-            m_Piloting = piloting;
-            m_InteriorCam.enabled = !piloting;
-            m_ExteriorCam.rect = piloting ? new Rect(0f, 0f, 1f, 1f) : new Rect(0.5f, 0f, 0.5f, 1f);
-            m_ExteriorCam.fieldOfView = piloting ? 70f : 55f;
+            m_FullExterior = full;
+            m_InteriorCam.enabled = !full;
+            m_ExteriorCam.rect = full ? new Rect(0f, 0f, 1f, 1f) : new Rect(0.5f, 0f, 0.5f, 1f);
         }
+        m_ExteriorCam.fieldOfView = piloting ? 70f : 55f;
         if (piloting)
         {
             var camPos = fist.position - fist.forward * 9f + Vector3.up * 3f;
@@ -390,6 +397,15 @@ public class GameBootstrap : MonoBehaviour
             DrawBuffBanner();
             return;
         }
+        if (m_Spectating)
+        {
+            DrawStatus();
+            DrawBossWarnings(true);
+            DrawBuffBanner();
+            DrawSpectatorBanner();
+            DrawEnd();
+            return;
+        }
         DrawSplitLine();
         DrawInteriorLabels();
         if (lobby)
@@ -593,6 +609,20 @@ public class GameBootstrap : MonoBehaviour
         GUI.Label(new Rect(rr.x, rr.y + 60 * s, rr.width, 22 * s), "<color=#fff3b0>ためているあいだに大ダメージ（パンチ・ロケットパンチ・必殺技）を与えると止められる → チャンスタイム</color>", new GUIStyle(m_Small) { alignment = TextAnchor.MiddleCenter, wordWrap = false });
     }
 
+    /// <summary>観戦中の案内（画面の下）</summary>
+    void DrawSpectatorBanner()
+    {
+        var rs = RobotState.Instance;
+        if (rs == null || rs.GameState.Value != RobotState.Playing) return;
+        float s = m_Scale;
+        var r = new Rect(Screen.width * 0.5f - 300 * s, Screen.height - 90 * s, 600 * s, 70 * s);
+        DrawRect(r, new Color(0.04f, 0.05f, 0.06f, 0.8f));
+        var big = new GUIStyle(m_Big) { fontSize = Mathf.RoundToInt(24 * s) };
+        big.normal.textColor = Prims.Hex("#ffb000");
+        GUI.Label(new Rect(r.x, r.y + 4 * s, r.width, 34 * s), "観戦中", big);
+        GUI.Label(new Rect(r.x, r.y + 38 * s, r.width, 26 * s), "ロケットパンチで腕と一緒に飛んでいった。次の試合から、また乗り込める", new GUIStyle(m_Small) { alignment = TextAnchor.MiddleCenter });
+    }
+
     int m_LastBuffId = -1;
     float m_BuffShownAt = -10f;
 
@@ -638,9 +668,21 @@ public class GameBootstrap : MonoBehaviour
     {
         var rs = RobotState.Instance;
         float s = m_Scale;
+        // ロケットパンチで飛ばした腕：隠した場所の真ん中に知らせを出す
+        for (int k = 0; k < 2; k++)
+        {
+            if (rs == null || !rs.ArmAway(k)) continue;
+            var cover = InteriorMap.ArmCover(k);
+            var csp = m_InteriorCam.WorldToScreenPoint(InteriorMap.ToWorld(cover.center, 1f));
+            if (csp.x < 0 || csp.x > Screen.width * 0.5f) continue;
+            var cr = new Rect(csp.x - 90 * s, Screen.height - csp.y - 26 * s, 180 * s, 52 * s);
+            m_Tag.normal.textColor = Prims.Hex("#ffb000");
+            GUI.Label(cr, rs.ArmLost(k) ? "（腕がない）\nロケットパンチで飛ばした" : "ロケットパンチ\n飛行中", m_Tag);
+        }
         for (int i = 0; i < Stations.Count; i++)
         {
             var def = Stations.All[i];
+            if (rs != null && ((i == Stations.LeftArm && rs.ArmAway(0)) || (i == Stations.RightArm && rs.ArmAway(1)))) continue;   // 腕がない
             var labelPos = def.Type == StationType.Core ? InteriorMap.ReactorPos + new Vector2(0f, 2f) : def.Pos + def.ConsoleOffset + new Vector2(0f, 1.4f);
             var sp = m_InteriorCam.WorldToScreenPoint(InteriorMap.ToWorld(labelPos, 1f));
             if (sp.z < 0 || sp.x < 0 || sp.x > Screen.width * 0.5f) continue;
@@ -665,6 +707,7 @@ public class GameBootstrap : MonoBehaviour
         }
         foreach (var p in CrewPlayer.All)
         {
+            if (p.Spectating.Value) continue;
             var sp = m_InteriorCam.WorldToScreenPoint(InteriorMap.ToWorld(p.DisplayPos + new Vector2(0f, 1.85f), 1f));
             if (sp.x < 0 || sp.x > Screen.width * 0.5f) continue;
             float w = 40 * s, h = 20 * s;
@@ -771,6 +814,7 @@ public class GameBootstrap : MonoBehaviour
         }
         foreach (var p in CrewPlayer.All)
         {
+            if (p.Spectating.Value) continue;
             var c = ToMap(p.DisplayPos);
             bool me = p == CrewPlayer.Local;
             float d = (me ? 10f + Mathf.Sin(Time.time * 6f) * 2f : 8f) * s;
@@ -815,10 +859,11 @@ public class GameBootstrap : MonoBehaviour
         if (rs == null) return;
         float s = m_Scale;
         float x = Screen.width * 0.5f + 14 * s, y = 12 * s, w = 280 * s;
-        bool armL = rs.TaskOk(Tasks.WiresL), armR = rs.TaskOk(Tasks.WiresR);
+        bool lostL = rs.ArmLost(0), lostR = rs.ArmLost(1);
+        bool armL = rs.TaskOk(Tasks.WiresL) || lostL, armR = rs.TaskOk(Tasks.WiresR) || lostR;   // 腕がないときは配線の表示はしない
         bool legL = rs.LegWorks(0), legR = rs.LegWorks(1);
         bool boost = rs.PunchBoost.Value > 0f;
-        int lines = (armL && armR ? 0 : 1) + (legL && legR ? 0 : 1) + (boost ? 1 : 0);
+        int lines = (armL && armR ? 0 : 1) + (legL && legR ? 0 : 1) + (boost ? 1 : 0) + (lostL || lostR ? 1 : 0);
         DrawRect(new Rect(x - 8 * s, y - 6 * s, w + 16 * s, (136 + lines * 22) * s), new Color(0.06f, 0.08f, 0.1f, 0.85f));
         float ly = y + 128 * s;
         if (!armL || !armR)
@@ -831,6 +876,12 @@ public class GameBootstrap : MonoBehaviour
         {
             string stopped = !legL && !legR ? "両脚" : !legL ? "左脚" : "右脚";
             GUI.Label(new Rect(x, ly, w, 24 * s), $"<color=#ff6a4a><b>⚠ {stopped}が停止中（ももの油圧が切れている）</b></color>", m_Small);
+            ly += 22 * s;
+        }
+        if (lostL || lostR)
+        {
+            string lost = lostL && lostR ? "両腕" : lostL ? "左腕" : "右腕";
+            GUI.Label(new Rect(x, ly, w, 24 * s), $"<color=#ffb000><b>{lost}がない（ロケットパンチで飛ばした）</b></color>", m_Small);
             ly += 22 * s;
         }
         if (boost)
@@ -978,7 +1029,7 @@ public class GameBootstrap : MonoBehaviour
         DrawRect(new Rect(0, 0, Screen.width, Screen.height), new Color(0, 0, 0, 0.55f));
         float s = m_Scale;
         m_Big.normal.textColor = won ? Prims.Hex("#ffb000") : Prims.Hex("#ff6a4a");
-        GUI.Label(new Rect(0, Screen.height * 0.36f, Screen.width, 60 * s), won ? "巨大な敵を倒した！" : "タイタン大破", m_Big);
+        GUI.Label(new Rect(0, Screen.height * 0.36f, Screen.width, 60 * s), won ? "巨大な敵を倒した！" : rs.Hull.Value > 0f ? "操縦する人がいなくなった…" : "タイタン大破", m_Big);
         int t = Mathf.FloorToInt(rs.Elapsed.Value);
         var info = $"スコア {rs.Score.Value}　時間 {t / 60}:{t % 60:00}\n" +
                    (networkManager.IsServer ? (RobotState.UseLobby ? "R キーで待機室に戻る" : "R キーでもう一度出撃")

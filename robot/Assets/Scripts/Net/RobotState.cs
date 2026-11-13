@@ -56,10 +56,11 @@ public class RobotState : NetworkBehaviour
     public const float StunDamageMul = 1.5f;      // チャンスタイム中のダメージ倍率
 
     // ---- ロケットパンチ（腕の席から発射して、拳を飛行機のように操縦する）
-    public const float RocketSpeed = 46f, RocketFlightTime = 7f, RocketCooldown = 22f;
-    const float RocketDamage = 45f, RocketReturnSpeed = 90f, RocketPower = 10f;
+    // 一度きりの捨て身の大技：飛ばした腕は戻らず（その試合のあいだ腕がない）、撃った人はその試合を観戦するだけになる
+    public const float RocketSpeed = 46f, RocketFlightTime = 8f;
+    const float RocketDamage = 80f, RocketPower = 10f;
     const float RocketTurn = 1.5f, RocketClimb = 0.9f;
-    public const int RocketDocked = 0, RocketFlying = 1, RocketReturning = 2;
+    public const int RocketDocked = 0, RocketFlying = 1, RocketLost = 3;
 
     // ---- ガード（腕の席で W 長押し）
     const float GuardCut = 0.4f;          // 腕1本で受けるダメージを 40% 減らす（両腕で 80%）
@@ -116,6 +117,8 @@ public class RobotState : NetworkBehaviour
     public float RocketLife(int k) => k == 0 ? RocketLifeL.Value : RocketLifeR.Value;
     /// <summary>その腕がロケットパンチで体から離れている</summary>
     public bool ArmAway(int k) => RocketState(k) != RocketDocked;
+    /// <summary>その腕はロケットパンチで飛ばして、もうない（試合が終わるまで戻らない）</summary>
+    public bool ArmLost(int k) => RocketState(k) == RocketLost;
 
     // ---- 必殺技
     public NetworkVariable<float> Special = new NetworkVariable<float>();       // ゲージ（敵に攻撃を当てるとたまる）
@@ -144,6 +147,7 @@ public class RobotState : NetworkBehaviour
     // 敵の行動
     float m_BossCd, m_BossActT, m_MegaCd;
     readonly Vector2[] m_RocketSteer = new Vector2[2];
+    readonly ulong[] m_RocketPilot = new ulong[2];
     bool m_BossHitDone;
     float m_SpecialT = -1f;
     float m_CellT;
@@ -195,7 +199,8 @@ public class RobotState : NetworkBehaviour
         var p = GetPlayer(id);
         if (p == null || GameState.Value != Playing) return;
         if (index < 0 || index >= Stations.Count) return;
-        if (Occupant[index] != 0 || FireHp[index] > 0 || p.Station.Value >= 0) return;
+        if (Occupant[index] != 0 || FireHp[index] > 0 || p.Station.Value >= 0 || p.Spectating.Value) return;
+        if ((index == Stations.LeftArm && ArmLost(0)) || (index == Stations.RightArm && ArmLost(1))) return;   // 腕がない
         if (Vector2.Distance(p.Pos.Value, Stations.All[index].Pos) > CrewPlayer.UseRange + 0.6f) return;
         Occupant[index] = (int)id + 1;
         p.Station.Value = index;
@@ -320,7 +325,7 @@ public class RobotState : NetworkBehaviour
         m_SpecialT = -1f;
         m_Bolts.Clear();
         m_PunchHitAt[0] = m_PunchHitAt[1] = -1f;
-        foreach (var p in CrewPlayer.All) p.Station.Value = -1;
+        foreach (var p in CrewPlayer.All) { p.Station.Value = -1; p.Spectating.Value = false; }
     }
 
     CrewPlayer GetPlayer(ulong clientId)
@@ -835,7 +840,8 @@ public class RobotState : NetworkBehaviour
         int st = p.Station.Value;
         if (st != Stations.LeftArm && st != Stations.RightArm) return;
         int k = st == Stations.LeftArm ? 0 : 1;
-        if (ArmAway(k) || RocketCd(k) > 0f || !TaskOk(k == 0 ? Tasks.WiresL : Tasks.WiresR) || Power.Value < RocketPower) return;
+        if (ArmAway(k) || !TaskOk(k == 0 ? Tasks.WiresL : Tasks.WiresR) || Power.Value < RocketPower) return;
+        m_RocketPilot[k] = rpcParams.Receive.SenderClientId;
         Power.Value -= RocketPower;
         float aim = k == 0 ? AimL.Value : AimR.Value;
         var sh = ShoulderWorld(k);
@@ -851,11 +857,7 @@ public class RobotState : NetworkBehaviour
         for (int k = 0; k < 2; k++)
         {
             int state = RocketState(k);
-            if (state == RocketDocked)
-            {
-                if (RocketCd(k) > 0f) SetRocketCd(k, Mathf.Max(0f, RocketCd(k) - dt));
-                continue;
-            }
+            if (state != RocketFlying) continue;
             var pos = RocketPos(k);
             float yaw = RocketYaw(k), pitch = RocketPitch(k), life = RocketLife(k);
             if (state == RocketFlying)
@@ -880,26 +882,35 @@ public class RobotState : NetworkBehaviour
                     DamageBoss(dmg);
                 }
                 if (hit || life <= 0f || Mathf.Abs(pos.x) > ExteriorWorld.Bounds || Mathf.Abs(pos.z) > ExteriorWorld.Bounds)
-                    SetRocketState(k, RocketReturning);
-            }
-            else
-            {
-                // 肩へ戻ってくる
-                var home = ShoulderWorld(k);
-                var d = home - pos;
-                float step = RocketReturnSpeed * dt;
-                if (d.magnitude <= step + 1f)
                 {
-                    SetRocketState(k, RocketDocked);
-                    SetRocketCd(k, RocketCooldown);
+                    // 拳は爆発してなくなる。腕は戻らず、操縦していた人はこの試合は観戦だけになる
+                    if (!hit) BoomFxRpc(pos, 2.4f, new Color(1f, 0.6f, 0.2f));
+                    SetRocketState(k, RocketLost);
+                    SetRocket(k, pos, yaw, pitch, 0f);
+                    var pilot = GetPlayer(m_RocketPilot[k]);
+                    if (pilot != null)
+                    {
+                        if (pilot.Station.Value == (k == 0 ? Stations.LeftArm : Stations.RightArm)) Unseat(pilot);
+                        pilot.Spectating.Value = true;
+                        pilot.Carry.Value = -1;
+                    }
+                    // だれかがまだその腕の席にいたら降ろす
+                    int st = k == 0 ? Stations.LeftArm : Stations.RightArm;
+                    if (Occupant[st] != 0) { var o = GetPlayer((ulong)(Occupant[st] - 1)); if (o != null) Unseat(o); else Occupant[st] = 0; }
+                    CheckAllSpectating();
                     continue;
                 }
-                pos += d.normalized * step;
-                yaw = Mathf.Atan2(-d.x, -d.z);              // 拳を前に向けたまま、後ろ向きに戻る
-                pitch = 0f;
             }
             SetRocket(k, pos, yaw, pitch, life);
         }
+    }
+
+    /// <summary>全員が観戦になったら（ロボットを動かす人がいない）負け</summary>
+    void CheckAllSpectating()
+    {
+        if (GameState.Value != Playing || CrewPlayer.All.Count == 0) return;
+        foreach (var p in CrewPlayer.All) if (!p.Spectating.Value) return;
+        GameState.Value = Lost;
     }
 
     void EndBossAction()
