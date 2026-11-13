@@ -47,6 +47,8 @@ public class CrewPlayer : NetworkBehaviour
     public int NearCell { get; private set; } = -1;
     /// <summary>セルを持って動力炉のそばにいる（E で入れられる）</summary>
     public bool NearReactor { get; private set; }
+    /// <summary>本人の近くにある腕の充電器（0 = 左腕用、1 = 右腕用、なければ -1）</summary>
+    public int NearCharger { get; private set; } = -1;
     public Color Color => Colors[Mathf.Clamp(Slot.Value, 0, Colors.Length - 1)];
     public string Label => "P" + (Slot.Value + 1);
 
@@ -315,7 +317,7 @@ public class CrewPlayer : NetworkBehaviour
                 if (TaskUI.IsOpen) TaskUI.Instance.Close();
                 if (Stick.Value != Vector2.zero) Stick.Value = Vector2.zero;
                 if (ActHeld.Value) ActHeld.Value = false;
-                NearStation = NearTask = NearDuct = NearCell = -1;
+                NearStation = NearTask = NearDuct = NearCell = NearCharger = -1;
                 NearReactor = false;
                 return;
             }
@@ -363,8 +365,10 @@ public class CrewPlayer : NetworkBehaviour
             NearReactor = carrying && m_Ladder < 0 && Vector2.Distance(Pos.Value, EnergyCells.ReactorPos) < EnergyCells.DeliverRange;
             NearStation = NearReactor ? -1 : InteriorMap.NearestStation(Pos.Value, UseRange);
             NearCell = NearStation < 0 && !carrying && !NearReactor && m_Ladder < 0 ? NearestCell(robot, Pos.Value) : -1;
-            NearTask = NearStation < 0 && NearCell < 0 && !NearReactor ? Tasks.Nearest(Pos.Value, UseRange) : -1;
-            NearDuct = NearStation < 0 && NearTask < 0 && NearCell < 0 && !NearReactor && m_Ladder < 0 ? Ducts.Nearest(Pos.Value, Ducts.UseRange) : -1;
+            NearCharger = NearStation < 0 && NearCell < 0 && !NearReactor && m_Ladder < 0 ? ArmChargers.Nearest(Pos.Value, ArmChargers.UseRange) : -1;
+            if (NearCharger >= 0 && robot != null && robot.ArmLost(NearCharger)) NearCharger = -1;   // 腕がなければ充電しない
+            NearTask = NearStation < 0 && NearCell < 0 && NearCharger < 0 && !NearReactor ? Tasks.Nearest(Pos.Value, UseRange) : -1;
+            NearDuct = NearStation < 0 && NearTask < 0 && NearCell < 0 && NearCharger < 0 && !NearReactor && m_Ladder < 0 ? Ducts.Nearest(Pos.Value, Ducts.UseRange) : -1;
             // 出口が飛んでいる腕の中にあるダクトは使えない
             if (NearDuct >= 0 && robot != null)
                 for (int k = 0; k < 2; k++)
@@ -372,6 +376,10 @@ public class CrewPlayer : NetworkBehaviour
             if (NearReactor)
             {
                 if (robot != null && playing && use) robot.DeliverCellRpc();   // 動力炉にエネルギーを入れる
+            }
+            else if (NearCharger >= 0)
+            {
+                if (robot != null && playing && (actPressed || use)) robot.ChargeArmRpc(NearCharger);   // Space 連打で腕を充電
             }
             else if (NearCell >= 0)
             {
@@ -418,6 +426,7 @@ public class CrewPlayer : NetworkBehaviour
             NearTask = -1;
             NearDuct = -1;
             NearCell = -1;
+            NearCharger = -1;
             NearReactor = false;
             if (use && robot != null) robot.LeaveStationRpc();
         }

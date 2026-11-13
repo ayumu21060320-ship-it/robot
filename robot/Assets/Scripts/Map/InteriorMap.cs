@@ -210,6 +210,7 @@ public static class InteriorMap
         public SpriteRenderer[] CellGlows = new SpriteRenderer[EnergyCells.Count];
         public SpriteRenderer ReactorIntake;
         public SpriteRenderer[] ArmCovers = new SpriteRenderer[2];
+        public SpriteRenderer[] ChargerFill = new SpriteRenderer[2];   // 腕の充電器の目盛り（腕のエネルギー）
     }
 
     // 重なり順（小さいほど奥）
@@ -237,6 +238,16 @@ public static class InteriorMap
 
         BuildCrewLayer(root, v);
         BuildLobby(root);
+        // 腕の充電器（肩の足場の左右）：機械の絵と、腕のエネルギーの目盛り
+        for (int k = 0; k < 2; k++)
+        {
+            var cp = ArmChargers.Pos[k];
+            var mach = Art.Place(root, "machine", new Vector3(cp.x, 0.02f, cp.y + 0.75f), OrderProp - 2, Prims.Hex("#9fe8ff"), k == 0 ? "左腕の充電器" : "右腕の充電器");
+            mach.transform.localScale = Vector3.one * 0.6f;
+            Art.Box(root, new Rect(cp.x - 0.6f, cp.y + 1.75f, 1.2f, 0.22f), 0.03f, OrderProp + 6, Prims.Hex("#101418"), "充電器の目盛り（下地）");
+            v.ChargerFill[k] = Art.Box(root, new Rect(cp.x - 0.58f, cp.y + 1.77f, 1.16f, 0.18f), 0.035f, OrderProp + 7, Prims.Hex("#4fd2ff"), "充電器の目盛り");
+        }
+
         // ロケットパンチで腕が飛んでいるあいだ、その腕（ひじから先）を隠す黒い板（いちばん手前）
         for (int k = 0; k < 2; k++)
         {

@@ -26,6 +26,10 @@ public class RobotVisual : MonoBehaviour
     float m_Recoil, m_HitReact, m_HitSide = 1f;
     readonly float[] m_SparkT = new float[2];
     readonly float[] m_LegSparkT = new float[2];
+    readonly int[] m_LastKick = new int[2];
+    readonly float[] m_KickT = { -1f, -1f };
+    int m_LastKnockId;
+    float m_BossKnockT = -1f;
     readonly float[] m_GuardBlend = new float[2];   // ガードの構えの度合い（0～1）
 
     // 必殺技：胸の灯りがためで強く光り、ビームを撃つ
@@ -92,6 +96,9 @@ public class RobotVisual : MonoBehaviour
         m_Yaw = s.Yaw.Value;
         m_LastPunch[0] = s.PunchL.Value;
         m_LastPunch[1] = s.PunchR.Value;
+        m_LastKick[0] = s.KickL.Value;
+        m_LastKick[1] = s.KickR.Value;
+        m_LastKnockId = s.BossKnockId.Value;
         m_BossPos = s.BossPos.Value;
         m_BossYaw = s.BossYaw.Value;
         m_BossLastId = s.BossActionId.Value;
@@ -313,12 +320,37 @@ public class RobotVisual : MonoBehaviour
         float bob = moving ? Mathf.Abs(Mathf.Sin(stride)) * 0.25f : 0f;
         float breathe = Mathf.Sin(Time.time * 1.3f);
 
+        // ---- キック：片足を胸の前まで引き上げてから、前へ蹴り出す（上半身は後ろへ反る）
+        int[] kicks = { s.KickL.Value, s.KickR.Value };
+        float kickLean = 0f;
+        for (int j = 0; j < 2; j++)
+        {
+            if (kicks[j] != m_LastKick[j]) { m_LastKick[j] = kicks[j]; m_KickT[j] = 0f; }
+            if (m_KickT[j] < 0f) continue;
+            m_KickT[j] += dt / RobotState.KickTime;
+            float t = m_KickT[j];
+            if (t >= 1f) { m_KickT[j] = -1f; continue; }
+            float hitAt = 0.5f / RobotState.KickTime;   // ホストの KickDelay と同じ
+            float hip, knee;
+            if (t < hitAt - 0.12f) { float e = Smooth(t / (hitAt - 0.12f)); hip = -60f * e; knee = 95f * e; kickLean = -6f * e; }        // ひざを胸へ引き上げる
+            else if (t < hitAt) { float e = (t - hitAt + 0.12f) / 0.12f; hip = Mathf.Lerp(-60f, -85f, e); knee = Mathf.Lerp(95f, 0f, e); kickLean = Mathf.Lerp(-6f, -14f, e); }  // 蹴り出す
+            else { float e = Smooth((t - hitAt) / (1f - hitAt)); hip = Mathf.Lerp(-85f, 0f, e); knee = Mathf.Lerp(0f, 0f, e) + Mathf.Sin(e * Mathf.PI) * 30f; kickLean = Mathf.Lerp(-14f, 0f, e); }
+            if (t >= hitAt && t - dt / RobotState.KickTime < hitAt) Shake = Mathf.Max(Shake, 1.2f);
+            m_Hip[j].localRotation = Quaternion.Euler(hip, 0, 0);
+            m_Knee[j].localRotation = Quaternion.Euler(knee, 0, 0);
+            m_Foot[j].localRotation = Quaternion.Euler(-hip * 0.3f, 0, 0);
+            // 軸足は少しひざを曲げて踏ん張る
+            m_Knee[1 - j].localRotation = Quaternion.Euler(18f, 0, 0);
+            m_Hip[1 - j].localRotation = Quaternion.Euler(-8f, 0, 0);
+            m_Foot[1 - j].localRotation = Quaternion.Euler(-10f, 0, 0);
+        }
+
         // ---- 腕：パンチの回数が増えたら、振りかぶり → 突き出し → ため → 戻し
         int[] punches = { s.PunchL.Value, s.PunchR.Value };
         float[] aims = { s.AimL.Value, s.AimR.Value };
         var pose = new ArmPose[2];
         float twist = Mathf.Sin(m_Phase[0]) * 5f * walk;    // 歩くと上半身が脚と逆にひねれる
-        float lean = 3f * walk + breathe * 0.6f;
+        float lean = 3f * walk + breathe * 0.6f + kickLean;
         float drop = 0f;
         bool[] punching = new bool[2];
         for (int i = 0; i < 2; i++)
@@ -337,24 +369,48 @@ public class RobotVisual : MonoBehaviour
             pose[i] = idle;
             if (m_PunchT[i] < 0f) continue;
 
-            m_PunchT[i] += dt / RobotState.PunchTime;
+            int kind = i == 0 ? s.PunchKindL.Value : s.PunchKindR.Value;
+            float dur = RobotState.PunchTimes[kind];
+            m_PunchT[i] += dt / dur;
             float t = m_PunchT[i];
             punching[i] = true;
-            // 振りかぶった形：腕を後ろへ引いてひじを大きく曲げ、拳を握り、上半身を反対へひねる
-            var wind = new ArmPose { Pitch = 34f, Roll = side * 22f, Elbow = -118f, Curl = 100f, Twist = side * 24f, Lean = -5f, Drop = 0.15f };
-            // 打ち抜いた形：腕を前にまっすぐ伸ばし、上半身を打つ側へひねって前のめり
-            var strike = new ArmPose { Pitch = -94f, Roll = side * 2f, Elbow = -2f, Curl = 105f, Twist = -side * 28f, Lean = 11f, Drop = 0.45f };
-            if (t < 0.3f) pose[i] = ArmPose.Lerp(idle, wind, Smooth(t / 0.3f));
-            else if (t < 0.43f) pose[i] = ArmPose.Lerp(wind, strike, 1f - Mathf.Pow(1f - (t - 0.3f) / 0.13f, 3f));
-            else if (t < 0.56f)
+            ArmPose wind, strike;
+            switch (kind)
             {
-                // 当たった瞬間：少し行き過ぎてから戻る（衝撃）
-                float e = (t - 0.43f) / 0.13f;
+                case RobotState.PunchJab:
+                    // ジャブ：小さく引いて、すばやくまっすぐ突く
+                    wind = new ArmPose { Pitch = 0f, Roll = side * 10f, Elbow = -95f, Curl = 100f, Twist = side * 8f, Drop = 0.05f };
+                    strike = new ArmPose { Pitch = -88f, Roll = side * 3f, Elbow = -8f, Curl = 105f, Twist = -side * 12f, Lean = 5f, Drop = 0.15f };
+                    break;
+                case RobotState.PunchHook:
+                    // フック：腕を横へ大きく開いて、ひじを曲げたまま横から振り抜く
+                    wind = new ArmPose { Pitch = -40f, Roll = side * 75f, Elbow = -95f, Curl = 100f, Twist = side * 30f, Lean = -2f, Drop = 0.2f };
+                    strike = new ArmPose { Pitch = -85f, Roll = -side * 25f, Elbow = -80f, Curl = 105f, Twist = -side * 38f, Lean = 8f, Drop = 0.4f };
+                    break;
+                case RobotState.PunchUpper:
+                    // アッパー：深くしゃがんで拳を下げ、伸び上がりながら真上へ突き上げる
+                    wind = new ArmPose { Pitch = 40f, Roll = side * 12f, Elbow = -125f, Curl = 100f, Twist = side * 18f, Lean = 10f, Drop = 0.9f };
+                    strike = new ArmPose { Pitch = -165f, Roll = side * 4f, Elbow = -30f, Curl = 105f, Twist = -side * 20f, Lean = -10f, Drop = -0.2f };
+                    break;
+                default:
+                    // ストレート：腕を後ろへ引いてひじを大きく曲げ → 前へまっすぐ打ち抜き、上半身を打つ側へひねって前のめり
+                    wind = new ArmPose { Pitch = 34f, Roll = side * 22f, Elbow = -118f, Curl = 100f, Twist = side * 24f, Lean = -5f, Drop = 0.15f };
+                    strike = new ArmPose { Pitch = -94f, Roll = side * 2f, Elbow = -2f, Curl = 105f, Twist = -side * 28f, Lean = 11f, Drop = 0.45f };
+                    break;
+            }
+            // 当たる瞬間（ホストの当たり判定と同じタイミング）を中心に、振りかぶり → 振り抜き → 衝撃 → 戻し
+            float hitAt = RobotState.PunchDelay[kind] / dur;
+            float ws = Mathf.Max(0.05f, hitAt - 0.13f);
+            if (t < ws) pose[i] = ArmPose.Lerp(idle, wind, Smooth(t / ws));
+            else if (t < hitAt) pose[i] = ArmPose.Lerp(wind, strike, 1f - Mathf.Pow(1f - (t - ws) / (hitAt - ws), 3f));
+            else if (t < hitAt + 0.13f)
+            {
+                float e = (t - hitAt) / 0.13f;
                 var over = strike; over.Pitch -= 6f; over.Lean += 3f;
                 pose[i] = ArmPose.Lerp(over, strike, e);
-                if (t - dt / RobotState.PunchTime < 0.43f) Shake = Mathf.Max(Shake, 0.6f);
+                if (t - dt / dur < hitAt) Shake = Mathf.Max(Shake, kind == RobotState.PunchJab ? 0.3f : kind == RobotState.PunchUpper ? 0.9f : 0.6f);
             }
-            else if (t < 1f) pose[i] = ArmPose.Lerp(strike, idle, Smooth((t - 0.56f) / 0.44f));
+            else if (t < 1f) pose[i] = ArmPose.Lerp(strike, idle, Smooth((t - hitAt - 0.13f) / Mathf.Max(0.05f, 1f - hitAt - 0.13f)));
             else { m_PunchT[i] = -1f; pose[i] = idle; punching[i] = false; }
         }
         // 肩の配線が切れている腕は、力が抜けてだらりと垂れ下がり、肩から火花が散る
@@ -737,6 +793,21 @@ public class RobotVisual : MonoBehaviour
             }
         }
 
+        // ---- 吹っ飛ばされた：大きくのけぞって後ろへすべり、土ぼこりを上げる
+        if (s.BossKnockId.Value != m_LastKnockId) { m_LastKnockId = s.BossKnockId.Value; m_BossKnockT = 0f; }
+        if (m_BossKnockT >= 0f)
+        {
+            m_BossKnockT += dt;
+            float e = Mathf.Clamp01(m_BossKnockT / 1.1f);
+            float a = Mathf.Sin(e * Mathf.PI);
+            torsoX -= 38f * a; headX -= 30f * a; jaw += 20f * a;
+            armL -= 60f * a; armR -= 60f * a;
+            bob -= 1.5f * a;
+            if (Random.value < dt * 12f * (1f - e))
+                Trail(new Vector3(m_BossPos.x + Random.Range(-8f, 8f), 1.5f, m_BossPos.y + Random.Range(-8f, 8f)), Prims.Hex("#9a8f86"), 2.5f);
+            if (e >= 1f) m_BossKnockT = -1f;
+        }
+
         // ---- 攻撃を受けたら、体をのけぞらせる
         float hpNow = s.BossHp.Value;
         if (hpNow < m_BossLastHp)
@@ -1068,6 +1139,36 @@ public class RobotVisual : MonoBehaviour
             if (trail) Trail(m_RocketFlame[k].position - m_RocketFlame[k].forward * 2f, Prims.Hex("#ffb02e"), 0.9f);
         }
     }
+
+    // ---------------------------------------------------------------- 当たったときの文字・機関銃の弾の線
+
+    public struct PopupText { public Vector3 Pos; public string Text; public bool Big; public float T; }
+    /// <summary>「会心！」「カウンター！」などの文字（GameBootstrap が外の画面に描く）</summary>
+    public readonly List<PopupText> Popups = new List<PopupText>();
+
+    public void Popup(Vector3 at, string text, bool big)
+    {
+        Popups.Add(new PopupText { Pos = at, Text = text, Big = big, T = Time.time });
+        if (Popups.Count > 12) Popups.RemoveAt(0);
+    }
+
+    /// <summary>機関銃の弾の線（一瞬だけ光る）と、当たった所の火花</summary>
+    public void SpawnTracer(Vector3 from, Vector3 to, bool hit)
+    {
+        var d = to - from;
+        if (d.sqrMagnitude < 1f) return;
+        var rot = Quaternion.LookRotation(d.normalized);
+        var mid = from + d * 0.5f;
+        var core = Prims.Box(m_FxRoot, mid, new Vector3(0.12f, 0.12f, d.magnitude), Color.white, true, "弾").transform;
+        var glow = Prims.Box(m_FxRoot, mid, new Vector3(0.35f, 0.35f, d.magnitude), Prims.Hex("#ffd84a"), true, "弾の光").transform;
+        core.rotation = rot; glow.rotation = rot;
+        m_Beams.Add(new Beam { Core = core, Glow = glow, Life = 0.08f, Max = 0.08f, Width = 0.35f });
+        Trail(from + d.normalized * 1.5f, Prims.Hex("#ffe14a"), 0.6f);   // 銃口の光
+        if (hit) { Trail(to, Prims.Hex("#ffb02e"), 1.0f); Trail(to, Color.white, 0.6f); }
+    }
+
+    /// <summary>頭の位置（機関銃モードの一人称カメラに使う）</summary>
+    public Vector3 HeadPosition => m_Head != null ? m_Head.position : Root.position;
 
     public void Hit()
     {
