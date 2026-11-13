@@ -73,6 +73,13 @@ public static class InteriorMap
 
     public static readonly Vector2 Spawn = new Vector2(24f, 35.6f) * Scale;
 
+    /// <summary>
+    /// ロケットパンチで飛んでいく腕の範囲（ひじから先。メートル）。飛んでいるあいだは内部の絵でも隠す。k = 0 左腕、1 右腕
+    /// </summary>
+    public static Rect ArmCover(int k) => k == 0
+        ? Rect.MinMaxRect(-1.5f * Scale, 9f * Scale, 10.8f * Scale, 33f * Scale)
+        : Rect.MinMaxRect(29.2f * Scale, 9f * Scale, 41.5f * Scale, 33f * Scale);
+
     /// <summary>試合開始で転送される場所（ロボットの中心、胸の下の段）。番号ごとに少しずらす</summary>
     public static Vector2 CenterSpawn(int i) => new Vector2((18.6f + (i % 6) * 1.2f) * Scale, 35.6f * Scale);
 
@@ -202,6 +209,7 @@ public static class InteriorMap
         public SpriteRenderer[] CellBodies = new SpriteRenderer[EnergyCells.Count];
         public SpriteRenderer[] CellGlows = new SpriteRenderer[EnergyCells.Count];
         public SpriteRenderer ReactorIntake;
+        public SpriteRenderer[] ArmCovers = new SpriteRenderer[2];
     }
 
     // 重なり順（小さいほど奥）
@@ -229,6 +237,12 @@ public static class InteriorMap
 
         BuildCrewLayer(root, v);
         BuildLobby(root);
+        // ロケットパンチで腕が飛んでいるあいだ、その腕（ひじから先）を隠す黒い板（いちばん手前）
+        for (int k = 0; k < 2; k++)
+        {
+            v.ArmCovers[k] = Art.Box(root, ArmCover(k), 0.2f, OrderFrontCable + 200, Prims.Hex("#07090b"), k == 0 ? "飛んでいる左腕" : "飛んでいる右腕");
+            v.ArmCovers[k].gameObject.SetActive(false);
+        }
         return v;
     }
 

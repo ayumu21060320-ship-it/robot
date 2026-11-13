@@ -37,8 +37,28 @@ public class RobotState : NetworkBehaviour
     public static readonly Vector2 BossStart = new Vector2(0f, 150f);
     const float BossWalkSpeed = 2.3f, BossTurnSpeed = 0.5f, BossReach = 38f;
     public const float BossSwipeWindup = 1.8f;    // 腕を振りかぶっている時間（見た目と合わせる）
-    public const int BossIdle = 0, BossSwipe = 1, BossBarrage = 2, BossStomp = 3;   // BossBarrage（遠距離の光弾）は使わない
-    const float SwipeDamage = 6f, StompDamage = 2.5f, StompRange = 55f;   // 装甲は厚め
+    public const int BossIdle = 0, BossSwipe = 1, BossBarrage = 2, BossStomp = 3, BossMega = 4;   // BossBarrage（遠距離の光弾）は使わない
+    const float SwipeDamage = 6f, StompDamage = 2.5f;   // 装甲は厚め
+    // 攻撃の範囲（攻撃の前に地面に赤く出る。範囲の外へ逃げればよけられる）
+    public const float SwipeArc = 55f;            // 振り下ろし：敵の正面から左右それぞれ何度まで
+    public const float SwipeReach = BossReach;    // 振り下ろし：届く距離
+    public const float StompRange = 34f;          // 足踏み：敵のまわりの円の半径
+    public const float StompWindup = 1.4f;        // 足踏み：踏み下ろすまで（見た目と合わせる）
+
+    // ---- 敵の大技「メガフレア」：タイタンのいた場所に大きな円が出て、ためが終わると大爆発
+    public const float MegaChargeTime = 7f;       // ため（このあいだに円の外へ逃げる）
+    public const float MegaRadius = 18f;          // 円の半径
+    const float MegaDamage = 28f;
+    public const float MegaBreakNeed = 45f;       // ためのあいだにこれだけダメージを与えると止められる
+    const float MegaFirst = 35f, MegaEvery = 45f; // 最初に使うまで／次に使うまで（秒）
+    public const float StunTime = 9f;             // 大技を止めたときのチャンスタイム（敵が倒れている）
+    public const float StunDamageMul = 1.5f;      // チャンスタイム中のダメージ倍率
+
+    // ---- ロケットパンチ（腕の席から発射して、拳を飛行機のように操縦する）
+    public const float RocketSpeed = 46f, RocketFlightTime = 7f, RocketCooldown = 22f;
+    const float RocketDamage = 45f, RocketReturnSpeed = 90f, RocketPower = 10f;
+    const float RocketTurn = 1.5f, RocketClimb = 0.9f;
+    public const int RocketDocked = 0, RocketFlying = 1, RocketReturning = 2;
 
     // ---- ガード（腕の席で W 長押し）
     const float GuardCut = 0.4f;          // 腕1本で受けるダメージを 40% 減らす（両腕で 80%）
@@ -76,6 +96,25 @@ public class RobotState : NetworkBehaviour
     public NetworkVariable<float> BossSpeed = new NetworkVariable<float>();
     public NetworkVariable<int> BossAction = new NetworkVariable<int>();       // 今の攻撃の種類
     public NetworkVariable<int> BossActionId = new NetworkVariable<int>();     // 攻撃を始めるたびに +1（見た目の合図）
+    public NetworkVariable<Vector2> BossTarget = new NetworkVariable<Vector2>(); // 大技の円の中心
+    public NetworkVariable<float> MegaBreak = new NetworkVariable<float>();      // 大技のため中に受けたダメージ
+    public NetworkVariable<float> BossStun = new NetworkVariable<float>();       // チャンスタイムの残り（秒）
+
+    // ---- ロケットパンチ（0 = 左腕、1 = 右腕）
+    public NetworkVariable<int> RocketStateL = new NetworkVariable<int>(), RocketStateR = new NetworkVariable<int>();
+    public NetworkVariable<Vector3> RocketPosL = new NetworkVariable<Vector3>(), RocketPosR = new NetworkVariable<Vector3>();
+    public NetworkVariable<float> RocketYawL = new NetworkVariable<float>(), RocketYawR = new NetworkVariable<float>();
+    public NetworkVariable<float> RocketPitchL = new NetworkVariable<float>(), RocketPitchR = new NetworkVariable<float>();
+    public NetworkVariable<float> RocketCdL = new NetworkVariable<float>(), RocketCdR = new NetworkVariable<float>();
+    public NetworkVariable<float> RocketLifeL = new NetworkVariable<float>(), RocketLifeR = new NetworkVariable<float>();
+    public int RocketState(int k) => k == 0 ? RocketStateL.Value : RocketStateR.Value;
+    public Vector3 RocketPos(int k) => k == 0 ? RocketPosL.Value : RocketPosR.Value;
+    public float RocketYaw(int k) => k == 0 ? RocketYawL.Value : RocketYawR.Value;
+    public float RocketPitch(int k) => k == 0 ? RocketPitchL.Value : RocketPitchR.Value;
+    public float RocketCd(int k) => k == 0 ? RocketCdL.Value : RocketCdR.Value;
+    public float RocketLife(int k) => k == 0 ? RocketLifeL.Value : RocketLifeR.Value;
+    /// <summary>その腕がロケットパンチで体から離れている</summary>
+    public bool ArmAway(int k) => RocketState(k) != RocketDocked;
 
     // ---- 必殺技
     public NetworkVariable<float> Special = new NetworkVariable<float>();       // ゲージ（敵に攻撃を当てるとたまる）
@@ -102,7 +141,8 @@ public class RobotState : NetworkBehaviour
     readonly List<Bolt> m_Bolts = new List<Bolt>();
     float m_Speed, m_Turn;
     // 敵の行動
-    float m_BossCd, m_BossActT;
+    float m_BossCd, m_BossActT, m_MegaCd;
+    readonly Vector2[] m_RocketSteer = new Vector2[2];
     bool m_BossHitDone;
     float m_SpecialT = -1f;
     float m_CellT;
@@ -257,6 +297,10 @@ public class RobotState : NetworkBehaviour
         BossAction.Value = BossIdle;
         m_BossCd = 9f;
         m_BossActT = 0f;
+        m_MegaCd = MegaFirst;
+        MegaBreak.Value = 0f;
+        BossStun.Value = 0f;
+        for (int k = 0; k < 2; k++) { SetRocketState(k, RocketDocked); SetRocketCd(k, 0f); m_RocketSteer[k] = Vector2.zero; }
 
         Occupant.Clear();
         FireHp.Clear();
@@ -346,6 +390,8 @@ public class RobotState : NetworkBehaviour
                     int k = i == Stations.LeftArm ? 0 : 1;
                     // 肩の配線が切れていると、その腕はまったく動かない（狙いもパンチもできない）
                     if (!TaskOk(k == 0 ? Tasks.WiresL : Tasks.WiresR)) break;
+                    // ロケットパンチを飛ばしているあいだは、スティックで拳を操縦する（パンチもガードもできない）
+                    if (ArmAway(k)) { m_RocketSteer[k] = stick; break; }
                     // ガード：長押ししているあいだ腕を顔の前で構える（パンチはできない）
                     bool guard = held && power > 0.5f;
                     if (guard) { power -= GuardPowerCost * dt; if (k == 0) guardL = true; else guardR = true; }
@@ -451,6 +497,7 @@ public class RobotState : NetworkBehaviour
         }
 
         UpdateCells(dt);
+        UpdateRockets(dt);
         UpdateBolts(dt);
         UpdateBoss(dt);
 
@@ -498,7 +545,14 @@ public class RobotState : NetworkBehaviour
         if (CellsActive >= EnergyCells.MaxActive) return;
         // 空いている場所のどこかに、ランダムな色のセルを出す
         var free = new List<int>();
-        for (int i = 0; i < CellAt.Count; i++) if (CellAt[i] < 0) free.Add(i);
+        for (int i = 0; i < CellAt.Count; i++)
+        {
+            if (CellAt[i] >= 0) continue;
+            // 飛んでいる腕の中には出さない
+            bool hidden = false;
+            for (int k = 0; k < 2; k++) if (ArmAway(k) && InteriorMap.ArmCover(k).Contains(EnergyCells.Spots[i])) hidden = true;
+            if (!hidden) free.Add(i);
+        }
         if (free.Count == 0) return;
         CellAt[free[Random.Range(0, free.Count)]] = Random.Range(0, EnergyCells.KindCount);
     }
@@ -582,9 +636,10 @@ public class RobotState : NetworkBehaviour
         {
             BoomFxRpc(new Vector3(BossPos.Value.x, 24f, BossPos.Value.y), 4f, new Color(0.6f, 0.95f, 1f));
             // ひるませる：攻撃を中断して、しばらく次の攻撃をしない
-            if (BossAction.Value != BossIdle) EndBossAction();
-            m_BossCd = 7f;
+            // 大技のため中なら、ダメージでチャンスタイムになる（DamageBoss が止める）
+            if (BossAction.Value != BossIdle && BossAction.Value != BossMega) EndBossAction();
             DamageBoss(SpecialDamage);
+            if (BossStun.Value <= 0f) m_BossCd = Mathf.Max(m_BossCd, 7f);
         }
     }
 
@@ -628,6 +683,15 @@ public class RobotState : NetworkBehaviour
         float dist = to.magnitude;
         float want = Mathf.Atan2(to.x, to.y);
 
+        // チャンスタイム：倒れていて動かない・攻撃しない
+        if (BossStun.Value > 0f)
+        {
+            BossStun.Value = Mathf.Max(0f, BossStun.Value - dt);
+            BossSpeed.Value = 0f;
+            return;
+        }
+        m_MegaCd -= dt;
+
         // 行動中
         if (BossAction.Value != BossIdle)
         {
@@ -640,7 +704,7 @@ public class RobotState : NetworkBehaviour
                     if (!m_BossHitDone && m_BossActT >= BossSwipeWindup)
                     {
                         m_BossHitDone = true;
-                        if (dist < BossReach)
+                        if (InSwipe(bp, BossYaw.Value, Pos.Value))
                         {
                             float g = GuardAmount();
                             RobotHit(SwipeDamage * (1f - g), g);
@@ -655,11 +719,11 @@ public class RobotState : NetworkBehaviour
                     if (m_BossActT >= BossSwipeWindup + 1.2f) EndBossAction();
                     break;
                 case BossStomp:
-                    if (!m_BossHitDone && m_BossActT >= 1.4f)
+                    if (!m_BossHitDone && m_BossActT >= StompWindup)
                     {
                         m_BossHitDone = true;
                         BoomFxRpc(new Vector3(bp.x, 1f, bp.y), 3.5f, new Color(0.7f, 0.6f, 0.5f));
-                        if (dist < StompRange)
+                        if (dist < StompRange + ExteriorWorld.RobotRadius * 0.5f)
                         {
                             float g = GuardAmount();
                             RobotHit(StompDamage * (1f - g * 0.5f), g * 0.5f);   // 足踏みの揺れはガードで半分しか防げない
@@ -668,6 +732,23 @@ public class RobotState : NetworkBehaviour
                         }
                     }
                     if (m_BossActT >= 2.6f) EndBossAction();
+                    break;
+                case BossMega:
+                    if (!m_BossHitDone && m_BossActT >= MegaChargeTime)
+                    {
+                        m_BossHitDone = true;
+                        var tg = BossTarget.Value;
+                        BoomFxRpc(new Vector3(tg.x, 2f, tg.y), 7f, new Color(1f, 0.35f, 0.6f));
+                        // 円の中にいたら大ダメージ（ガードでも半分しか防げない）
+                        if (Vector2.Distance(Pos.Value, tg) < MegaRadius + ExteriorWorld.RobotRadius * 0.4f)
+                        {
+                            float g = GuardAmount() * 0.5f;
+                            RobotHit(MegaDamage * (1f - g), g);
+                            if (Random.value < 0.4f * (1f - g)) StartFire();
+                        }
+                        CrushBuildings(tg, MegaRadius, false);
+                    }
+                    if (m_BossActT >= MegaChargeTime + 1.5f) EndBossAction();
                     break;
             }
             return;
@@ -686,12 +767,138 @@ public class RobotState : NetworkBehaviour
         // 攻撃を選ぶ
         m_BossCd -= dt;
         // 遠距離の攻撃はしない：近くまで来たときだけ攻撃する
-        if (m_BossCd > 0f || dist > BossReach + 4f) return;
-        int kind = dist < BossReach && Random.value < 0.7f ? BossSwipe : BossStomp;
+        if (m_BossCd > 0f) return;
+        int kind;
+        if (m_MegaCd <= 0f && dist < 110f)
+        {
+            // 大技：今タイタンがいる場所をねらう
+            kind = BossMega;
+            m_MegaCd = MegaEvery;
+            BossTarget.Value = Pos.Value;
+            MegaBreak.Value = 0f;
+        }
+        else if (dist > BossReach + 4f) return;   // ふつうの攻撃は近くに来たときだけ
+        else kind = dist < BossReach && Random.value < 0.7f ? BossSwipe : BossStomp;
         BossAction.Value = kind;
         BossActionId.Value++;
         m_BossActT = 0f;
         m_BossHitDone = false;
+    }
+
+    /// <summary>振り下ろしの範囲（敵の正面の扇形）にタイタンが入っているか</summary>
+    static bool InSwipe(Vector2 bossPos, float bossYaw, Vector2 titan)
+    {
+        var to = titan - bossPos;
+        float d = to.magnitude;
+        if (d > SwipeReach + ExteriorWorld.RobotRadius * 0.5f) return false;
+        float ang = Mathf.Abs(Mathf.DeltaAngle(bossYaw * Mathf.Rad2Deg, Mathf.Atan2(to.x, to.y) * Mathf.Rad2Deg));
+        float body = Mathf.Atan2(ExteriorWorld.RobotRadius * 0.5f, Mathf.Max(1f, d)) * Mathf.Rad2Deg;   // タイタンの体の幅のぶん
+        return ang < SwipeArc + body;
+    }
+
+    /// <summary>大技を止めた：敵が倒れてチャンスタイム</summary>
+    void StunBoss()
+    {
+        BossAction.Value = BossIdle;
+        BossStun.Value = StunTime;
+        m_BossCd = StunTime + 3f;
+        MegaBreak.Value = 0f;
+        var bp = BossPos.Value;
+        BoomFxRpc(new Vector3(bp.x, 24f, bp.y), 5f, new Color(1f, 0.9f, 0.3f));
+        Score.Value += 500;
+    }
+
+    // ================================================================ ロケットパンチ
+
+    void SetRocketState(int k, int v) { if (k == 0) RocketStateL.Value = v; else RocketStateR.Value = v; }
+    void SetRocketCd(int k, float v) { if (k == 0) RocketCdL.Value = v; else RocketCdR.Value = v; }
+    void SetRocket(int k, Vector3 pos, float yaw, float pitch, float life)
+    {
+        if (k == 0) { RocketPosL.Value = pos; RocketYawL.Value = yaw; RocketPitchL.Value = pitch; RocketLifeL.Value = life; }
+        else { RocketPosR.Value = pos; RocketYawR.Value = yaw; RocketPitchR.Value = pitch; RocketLifeR.Value = life; }
+    }
+
+    /// <summary>肩の位置（腕が戻ってくる場所）</summary>
+    Vector3 ShoulderWorld(int k)
+    {
+        var p = LocalToWorld((k == 0 ? -1f : 1f) * 3.75f * TitanScale, 0f);
+        return new Vector3(p.x, 14.6f * TitanScale, p.y);
+    }
+
+    /// <summary>腕の席からロケットパンチを発射する（拳を飛ばして、その人が操縦する）</summary>
+    [Rpc(SendTo.Server)]
+    public void LaunchRocketRpc(RpcParams rpcParams = default)
+    {
+        var p = GetPlayer(rpcParams.Receive.SenderClientId);
+        if (p == null || GameState.Value != Playing) return;
+        int st = p.Station.Value;
+        if (st != Stations.LeftArm && st != Stations.RightArm) return;
+        int k = st == Stations.LeftArm ? 0 : 1;
+        if (ArmAway(k) || RocketCd(k) > 0f || !TaskOk(k == 0 ? Tasks.WiresL : Tasks.WiresR) || Power.Value < RocketPower) return;
+        Power.Value -= RocketPower;
+        float aim = k == 0 ? AimL.Value : AimR.Value;
+        var sh = ShoulderWorld(k);
+        float yaw = Yaw.Value + aim;
+        SetRocket(k, sh + new Vector3(Mathf.Sin(yaw), 0f, Mathf.Cos(yaw)) * 6f, yaw, -0.08f, RocketFlightTime);
+        SetRocketState(k, RocketFlying);
+        m_RocketSteer[k] = Vector2.zero;
+        m_PunchHitAt[k] = -1f;
+    }
+
+    void UpdateRockets(float dt)
+    {
+        for (int k = 0; k < 2; k++)
+        {
+            int state = RocketState(k);
+            if (state == RocketDocked)
+            {
+                if (RocketCd(k) > 0f) SetRocketCd(k, Mathf.Max(0f, RocketCd(k) - dt));
+                continue;
+            }
+            var pos = RocketPos(k);
+            float yaw = RocketYaw(k), pitch = RocketPitch(k), life = RocketLife(k);
+            if (state == RocketFlying)
+            {
+                // 飛行機のように：A/D で左右に曲がり、W/S で上下
+                var steer = m_RocketSteer[k];
+                yaw += steer.x * RocketTurn * dt;
+                pitch = Mathf.Clamp(pitch + steer.y * RocketClimb * dt, -0.7f, 0.5f);
+                var dir = new Vector3(Mathf.Sin(yaw) * Mathf.Cos(pitch), Mathf.Sin(pitch), Mathf.Cos(yaw) * Mathf.Cos(pitch));
+                pos += dir * RocketSpeed * dt;
+                if (pos.y < 2f) { pos.y = 2f; pitch = Mathf.Max(pitch, 0f); }
+                if (pos.y > 60f) { pos.y = 60f; pitch = Mathf.Min(pitch, 0f); }
+                life -= dt;
+                var p2 = new Vector2(pos.x, pos.z);
+                if (pos.y < 30f) CrushBuildings(p2, 4f);
+                bool hit = BossAlive && Vector2.Distance(p2, BossPos.Value) < BossRadius + 4f && pos.y < 46f;
+                if (hit)
+                {
+                    float dmg = PunchBoost.Value > 0f ? RocketDamage * EnergyCells.PunchBoostMul : RocketDamage;
+                    BoomFxRpc(pos, 3.2f, new Color(1f, 0.6f, 0.2f));
+                    if (BossAction.Value != BossIdle && BossAction.Value != BossMega) EndBossAction();   // ふつうの攻撃は止まる
+                    DamageBoss(dmg);
+                }
+                if (hit || life <= 0f || Mathf.Abs(pos.x) > ExteriorWorld.Bounds || Mathf.Abs(pos.z) > ExteriorWorld.Bounds)
+                    SetRocketState(k, RocketReturning);
+            }
+            else
+            {
+                // 肩へ戻ってくる
+                var home = ShoulderWorld(k);
+                var d = home - pos;
+                float step = RocketReturnSpeed * dt;
+                if (d.magnitude <= step + 1f)
+                {
+                    SetRocketState(k, RocketDocked);
+                    SetRocketCd(k, RocketCooldown);
+                    continue;
+                }
+                pos += d.normalized * step;
+                yaw = Mathf.Atan2(-d.x, -d.z);              // 拳を前に向けたまま、後ろ向きに戻る
+                pitch = 0f;
+            }
+            SetRocket(k, pos, yaw, pitch, life);
+        }
     }
 
     void EndBossAction()
@@ -703,7 +910,14 @@ public class RobotState : NetworkBehaviour
     void DamageBoss(float dmg)
     {
         if (!BossAlive) return;
+        if (BossStun.Value > 0f) dmg *= StunDamageMul;   // チャンスタイム中はよく効く
         BossHp.Value = Mathf.Max(0f, BossHp.Value - dmg);
+        // 大技のため中に大ダメージを与えると、大技が止まってチャンスタイム
+        if (BossAction.Value == BossMega && BossHp.Value > 0f)
+        {
+            MegaBreak.Value += dmg;
+            if (MegaBreak.Value >= MegaBreakNeed) StunBoss();
+        }
         if (!SpecialCharging.Value) Special.Value = Mathf.Min(SpecialMax, Special.Value + dmg * 0.9f);  // 攻撃を当てると必殺ゲージがたまる
         Score.Value += Mathf.RoundToInt(dmg * 10f);
         if (BossHp.Value > 0f) return;

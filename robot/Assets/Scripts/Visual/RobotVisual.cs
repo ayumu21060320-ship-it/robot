@@ -34,7 +34,7 @@ public class RobotVisual : MonoBehaviour
     int m_LastSpecialId;
     float m_ChargeT = -1f;
     readonly List<Beam> m_Beams = new List<Beam>();
-    class Beam { public Transform Core, Glow; public float Life, Max; }
+    class Beam { public Transform Core, Glow; public float Life, Max, Width = 6f; }
 
     // ビルが崩れるアニメーション（-1 = 立っている）
     float[] m_BldFall;
@@ -68,6 +68,9 @@ public class RobotVisual : MonoBehaviour
     Vector2 m_BossPos;
     float m_BossYaw, m_BossPhase, m_BossT = -1f, m_BossLastHp, m_BossFlash;
     int m_BossLastId, m_BossKind;
+    float m_BossCharge, m_BossStunAmt, m_StunStarT;
+    /// <summary>敵が今の攻撃を始めてからの時間（攻撃していなければ -1）。HUD の残り時間に使う</summary>
+    public float BossActionTime => m_BossT;
     readonly List<Fx> m_Fx = new List<Fx>();
     Transform m_FxRoot;
 
@@ -96,6 +99,8 @@ public class RobotVisual : MonoBehaviour
         Build();
         Root.localScale = Vector3.one * RobotState.TitanScale;
         BuildBoss();
+        BuildZones();
+        BuildRockets();
     }
 
     void OnDestroy()
@@ -422,6 +427,7 @@ public class RobotVisual : MonoBehaviour
 
         UpdateSpecial(dt);
         UpdateBuffs(dt);
+        UpdateRocketVisuals(dt);
         UpdateBuildings(dt);
         UpdateBoss(dt);
 
@@ -642,6 +648,37 @@ public class RobotVisual : MonoBehaviour
                     if (s.BossAction.Value != RobotState.BossBarrage && t > 1f) m_BossT = -1f;
                     break;
                 }
+                case RobotState.BossMega:
+                {
+                    // 大技：大きくのけぞって両腕を広げ、口に光をためる → 前へ突き出して光を放つ
+                    float ct = RobotState.MegaChargeTime;
+                    if (s.BossAction.Value != RobotState.BossMega && t < ct) { m_BossT = -1f; break; }   // 止められた
+                    if (t < ct)
+                    {
+                        float e = Mathf.Clamp01(t / 1.2f), c = t / ct;
+                        torsoX = 18f - 26f * e; headX = -32f * e + Mathf.Sin(time * 25f) * 1.5f * c; jaw = 6f + 28f * e;
+                        armR = armL = -18f - 95f * e; foreR = foreL = -45f * e; roll = Mathf.Sin(time * 9f) * 2.5f * c;
+                        mouth = 0.6f + c * 1.6f;
+                        m_BossCharge = c;
+                        if (Random.value < dt * (4f + c * 14f)) Trail(m_BossJaw.position + Random.insideUnitSphere * 3f, Prims.Hex("#ff6ab0"), 1.2f);
+                    }
+                    else if (t < ct + 0.35f)
+                    {
+                        float e = (t - ct) / 0.35f;
+                        torsoX = Mathf.Lerp(-8f, 38f, e); headX = Mathf.Lerp(-32f, 22f, e); jaw = 34f; mouth = 2.2f;
+                        armR = armL = Mathf.Lerp(-113f, 10f, e); foreR = foreL = Mathf.Lerp(-45f, 0f, e);
+                        m_BossCharge = 1f - e;
+                    }
+                    else if (t < ct + 1.5f)
+                    {
+                        float e = (t - ct - 0.35f) / 1.15f;
+                        torsoX = Mathf.Lerp(38f, 18f, e); headX = Mathf.Lerp(22f, 0f, e); jaw = Mathf.Lerp(34f, 4f, e);
+                        armR = armL = Mathf.Lerp(10f, -18f, e); m_BossCharge = 0f;
+                    }
+                    else { m_BossT = -1f; m_BossCharge = 0f; }
+                    if (t >= ct && t - dt < ct) SpawnLineBeam(m_BossJaw.position, new Vector3(s.BossTarget.Value.x, 0f, s.BossTarget.Value.y), 6f, Prims.Hex("#ff4fa0"));
+                    break;
+                }
                 case RobotState.BossStomp:
                 {
                     // 両腕を上げて体を反らし、片足を高く上げてから踏み下ろす
@@ -664,6 +701,34 @@ public class RobotVisual : MonoBehaviour
                     else m_BossT = -1f;
                     if (t >= 1.55f && t - dt < 1.55f && Vector2.Distance(m_BossPos, m_Pos) < 160f) Shake = Mathf.Max(Shake, 1.4f);
                     break;
+                }
+            }
+        }
+
+        // ---- チャンスタイム：大技を止められて、前に崩れ落ちてふらふらしている
+        bool stunned = s.BossStun.Value > 0f;
+        m_BossStunAmt = Mathf.MoveTowards(m_BossStunAmt, stunned ? 1f : 0f, dt * (stunned ? 2.5f : 1f));
+        if (stunned && m_BossT >= 0f && m_BossKind != RobotState.BossMega) m_BossT = -1f;
+        if (m_BossStunAmt > 0f)
+        {
+            float a = Smooth(m_BossStunAmt);
+            float sway = Mathf.Sin(time * 1.6f);
+            torsoX = Mathf.Lerp(torsoX, 58f + sway * 3f, a);
+            headX = Mathf.Lerp(headX, 30f, a);
+            jaw = Mathf.Lerp(jaw, 22f, a);
+            armL = Mathf.Lerp(armL, 35f + sway * 6f, a); armR = Mathf.Lerp(armR, 35f - sway * 6f, a);
+            foreL = Mathf.Lerp(foreL, 20f, a); foreR = Mathf.Lerp(foreR, 20f, a);
+            roll = Mathf.Lerp(roll, sway * 7f, a);
+            bob -= 5f * a;
+            mouth *= 1f - a;
+            if (stunned)
+            {
+                m_StunStarT -= dt;
+                if (m_StunStarT <= 0f)
+                {
+                    m_StunStarT = 0.25f;
+                    float ang = time * 4f;
+                    Trail(m_BossHead.position + new Vector3(Mathf.Cos(ang) * 6f, 6f, Mathf.Sin(ang) * 6f), Prims.Hex("#ffe14a"), 1.6f);
                 }
             }
         }
@@ -713,7 +778,10 @@ public class RobotVisual : MonoBehaviour
         m_BossFlash = Mathf.Max(0f, m_BossFlash - dt * 4f);
         float pulse = 0.75f + Mathf.Sin(time * 2.4f) * 0.25f;
         Prims.SetColor(m_BossCore, Color.Lerp(Prims.Hex("#ff3d7f") * pulse, Color.white, m_BossFlash));
-        m_BossCore.transform.localScale = Vector3.one * (4.2f + m_BossFlash * 0.8f);
+        if (m_BossCharge > 0f) Prims.SetColor(m_BossCore, Color.Lerp(Prims.Hex("#ff3d7f"), Color.white, m_BossCharge * (0.6f + 0.4f * Mathf.Sin(time * 30f))));
+        if (m_BossStunAmt > 0f) Prims.SetColor(m_BossCore, Color.Lerp(Prims.Hex("#ff3d7f") * 0.4f, Prims.Hex("#ffe14a"), 0.5f + 0.5f * Mathf.Sin(time * 8f)));
+        m_BossCore.transform.localScale = Vector3.one * (4.2f + m_BossFlash * 0.8f + m_BossCharge * 2.5f);
+        UpdateZones(s);
         Prims.SetColor(m_BossMouth, Prims.Hex("#ff3d7f") * Mathf.Clamp01(mouth));
     }
 
@@ -782,6 +850,216 @@ public class RobotVisual : MonoBehaviour
                 m_BoostSparkT = 0.35f;
                 for (int i = 0; i < 2; i++) Boom(m_Hand[i].position, 0.3f, EnergyCells.Color(EnergyCells.Red));
             }
+        }
+    }
+
+    // ---------------------------------------------------------------- 敵の攻撃の範囲（地面の赤い印）
+
+    Transform m_SwipeZone, m_SwipeFill, m_CircleZone, m_CircleFill;
+    Renderer m_SwipeEdgeR, m_CircleEdgeR;
+
+    /// <summary>
+    /// 半径 1 の扇形（deg 度、正面が +Z）を作る。inner は内側の半径（0 なら中まで塗る、0.94 などなら縁だけ）。
+    /// edges = true なら扇の左右の辺も線で描く。
+    /// </summary>
+    static Mesh SectorMesh(float inner, float deg, int seg, bool edges)
+    {
+        var v = new List<Vector3>();
+        var t = new List<int>();
+        float half = deg * 0.5f;
+        for (int i = 0; i <= seg; i++)
+        {
+            float a = (-half + deg * i / seg) * Mathf.Deg2Rad;
+            var d = new Vector3(Mathf.Sin(a), 0f, Mathf.Cos(a));
+            v.Add(d * inner); v.Add(d);
+        }
+        for (int i = 0; i < seg; i++)
+        {
+            int b = i * 2;
+            t.AddRange(new[] { b, b + 1, b + 3, b, b + 3, b + 2 });
+        }
+        if (edges)
+        {
+            foreach (float sgn in new[] { -1f, 1f })
+            {
+                float a = sgn * half * Mathf.Deg2Rad;
+                var d = new Vector3(Mathf.Sin(a), 0f, Mathf.Cos(a));
+                var n = new Vector3(Mathf.Cos(a), 0f, -Mathf.Sin(a)) * 0.025f;
+                int b = v.Count;
+                v.Add(-n); v.Add(d - n); v.Add(d + n); v.Add(n);
+                t.AddRange(new[] { b, b + 1, b + 2, b, b + 2, b + 3, b, b + 2, b + 1, b, b + 3, b + 2 });   // 両面
+            }
+        }
+        var m = new Mesh();
+        m.SetVertices(v);
+        m.SetTriangles(t, 0);
+        m.RecalculateNormals();
+        m.RecalculateBounds();
+        return m;
+    }
+
+    Transform MeshObject(Transform parent, Mesh mesh, Color c, string name, out Renderer r)
+    {
+        var g = new GameObject(name);
+        g.transform.SetParent(parent, false);
+        g.AddComponent<MeshFilter>().sharedMesh = mesh;
+        var mr = g.AddComponent<MeshRenderer>();
+        mr.sharedMaterial = Prims.Mat(c, true);
+        mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+        r = mr;
+        return g.transform;
+    }
+
+    void BuildZones()
+    {
+        var fillC = Prims.Hex("#5a0d14");
+        var edgeC = Prims.Hex("#ff3b3b");
+        float arc = RobotState.SwipeArc * 2f;
+        m_SwipeZone = Prims.Pivot(m_FxRoot, Vector3.zero, "振り下ろしの範囲");
+        m_SwipeFill = MeshObject(m_SwipeZone, SectorMesh(0f, arc, 24, false), fillC, "塗り", out _);
+        MeshObject(m_SwipeZone, SectorMesh(0.95f, arc, 24, true), edgeC, "縁", out m_SwipeEdgeR).localPosition = new Vector3(0f, 0.02f, 0f);
+        m_CircleZone = Prims.Pivot(m_FxRoot, Vector3.zero, "円の範囲");
+        m_CircleFill = MeshObject(m_CircleZone, SectorMesh(0f, 360f, 48, false), fillC, "塗り", out _);
+        MeshObject(m_CircleZone, SectorMesh(0.96f, 360f, 48, false), edgeC, "縁", out m_CircleEdgeR).localPosition = new Vector3(0f, 0.02f, 0f);
+        m_SwipeZone.gameObject.SetActive(false);
+        m_CircleZone.gameObject.SetActive(false);
+    }
+
+    /// <summary>攻撃が来る範囲を地面に出す。真ん中から赤く埋まっていき、埋まりきると攻撃が来る</summary>
+    void UpdateZones(RobotState s)
+    {
+        bool swipe = false, circle = false;
+        float t = m_BossT;
+        if (s.BossAlive && t >= 0f && s.BossStun.Value <= 0f)
+        {
+            float pulse = 0.7f + 0.3f * Mathf.Sin(Time.time * 12f);
+            var edge = Prims.Hex("#ff3b3b") * pulse;
+            switch (m_BossKind)
+            {
+                case RobotState.BossSwipe when t < RobotState.BossSwipeWindup:
+                {
+                    swipe = true;
+                    float r = RobotState.SwipeReach;
+                    m_SwipeZone.SetPositionAndRotation(new Vector3(m_BossPos.x, 0.12f, m_BossPos.y), Quaternion.Euler(0f, m_BossYaw * Mathf.Rad2Deg, 0f));
+                    m_SwipeZone.localScale = Vector3.one * r;
+                    float e = t / RobotState.BossSwipeWindup;
+                    m_SwipeFill.localScale = new Vector3(e, 1f, e);
+                    Prims.SetColor(m_SwipeEdgeR, edge);
+                    break;
+                }
+                case RobotState.BossStomp when t < RobotState.StompWindup:
+                {
+                    circle = true;
+                    m_CircleZone.position = new Vector3(m_BossPos.x, 0.12f, m_BossPos.y);
+                    m_CircleZone.localScale = Vector3.one * RobotState.StompRange;
+                    float e = t / RobotState.StompWindup;
+                    m_CircleFill.localScale = new Vector3(e, 1f, e);
+                    Prims.SetColor(m_CircleEdgeR, edge);
+                    break;
+                }
+                case RobotState.BossMega when t < RobotState.MegaChargeTime && s.BossAction.Value == RobotState.BossMega:
+                {
+                    circle = true;
+                    var tg = s.BossTarget.Value;
+                    m_CircleZone.position = new Vector3(tg.x, 0.12f, tg.y);
+                    m_CircleZone.localScale = Vector3.one * RobotState.MegaRadius;
+                    float e = t / RobotState.MegaChargeTime;
+                    m_CircleFill.localScale = new Vector3(e, 1f, e);
+                    Prims.SetColor(m_CircleEdgeR, Color.Lerp(edge, Color.white, e > 0.8f && Mathf.Sin(Time.time * 30f) > 0f ? 0.6f : 0f));
+                    break;
+                }
+            }
+        }
+        if (m_SwipeZone.gameObject.activeSelf != swipe) m_SwipeZone.gameObject.SetActive(swipe);
+        if (m_CircleZone.gameObject.activeSelf != circle) m_CircleZone.gameObject.SetActive(circle);
+    }
+
+    /// <summary>2点を結ぶ太い光（大技の光線など）。細くなって消える</summary>
+    void SpawnLineBeam(Vector3 from, Vector3 to, float width, Color color)
+    {
+        var d = to - from;
+        var rot = Quaternion.LookRotation(d.normalized);
+        var mid = from + d * 0.5f;
+        var core = Prims.Box(m_FxRoot, mid, new Vector3(width * 0.4f, width * 0.4f, d.magnitude), Color.white, true, "光線").transform;
+        var glow = Prims.Box(m_FxRoot, mid, new Vector3(width, width, d.magnitude), color, true, "光線の光").transform;
+        core.rotation = rot; glow.rotation = rot;
+        m_Beams.Add(new Beam { Core = core, Glow = glow, Life = 0.9f, Max = 0.9f, Width = width });
+        Shake = Mathf.Max(Shake, 1.4f);
+    }
+
+    /// <summary>揺れを起こさない小さな光の粒（飛んでいく拳の噴射・ためている光など）</summary>
+    void Trail(Vector3 at, Color color, float size)
+    {
+        var f = Prims.Box(m_FxRoot, at, Vector3.one * Random.Range(0.4f, 0.9f) * size, color, true, "Trail");
+        var v = Random.insideUnitSphere * 3f;
+        m_Fx.Add(new Fx { T = f.transform, V = v, Life = Random.Range(0.3f, 0.6f) });
+    }
+
+    // ---------------------------------------------------------------- ロケットパンチ
+
+    readonly Transform[] m_Rocket = new Transform[2];
+    readonly Transform[] m_RocketFlame = new Transform[2];
+    readonly Vector3[] m_RocketShown = new Vector3[2];
+    readonly Quaternion[] m_RocketRot = new Quaternion[2];
+    readonly bool[] m_RocketWasAway = new bool[2];
+    float m_RocketTrailT;
+
+    /// <summary>飛んでいるロケットパンチの拳（カメラが後ろから追いかけるのに使う）。飛んでいなければ null</summary>
+    public Transform RocketFist(int k) => m_Rocket[k] != null && m_Rocket[k].gameObject.activeSelf ? m_Rocket[k] : null;
+
+    void BuildRockets()
+    {
+        float S = RobotState.TitanScale;
+        var white = Prims.Hex("#e6e9ee");
+        var frame = Prims.Hex("#4a5058");
+        var yellow = Prims.Hex("#ffc21a");
+        for (int k = 0; k < 2; k++)
+        {
+            var r = Prims.Pivot(m_FxRoot, Vector3.zero, k == 0 ? "ロケットパンチ（左）" : "ロケットパンチ（右）");
+            // 前腕（後ろ）→ 拳（前）。+Z が進む向き
+            Prims.Box(r, new Vector3(0, 0, -1.3f) * S, new Vector3(2.0f, 1.9f, 2.6f) * S, white, false, "前腕");
+            Prims.Box(r, new Vector3((k == 0 ? -1f : 1f) * 1.15f, 0, -1.2f) * S, new Vector3(0.3f, 2.2f, 2.6f) * S, yellow, false, "装甲板");
+            Prims.Box(r, new Vector3(0, 0, 0.6f) * S, new Vector3(1.8f, 1.6f, 1.5f) * S, white, false, "拳");
+            for (int f = 0; f < 4; f++)
+                Prims.Box(r, new Vector3(-0.6f + f * 0.4f, 0.35f, 1.38f) * S, new Vector3(0.34f, 0.5f, 0.2f) * S, frame, false, "指の節");
+            Prims.Box(r, new Vector3(0, 0, -2.7f) * S, new Vector3(1.4f, 1.4f, 0.4f) * S, frame, false, "噴射口");
+            m_RocketFlame[k] = Prims.Box(r, new Vector3(0, 0, -3.6f) * S, new Vector3(1.0f, 1.0f, 1.8f) * S, Prims.Hex("#ffb02e"), true, "噴射の炎").transform;
+            Prims.Box(m_RocketFlame[k], new Vector3(0, 0, -0.2f), new Vector3(0.55f, 0.55f, 1.2f), Color.white, true, "炎の芯");
+            r.gameObject.SetActive(false);
+            m_Rocket[k] = r;
+        }
+    }
+
+    void UpdateRocketVisuals(float dt)
+    {
+        var s = m_State;
+        m_RocketTrailT -= dt;
+        bool trail = m_RocketTrailT <= 0f;
+        if (trail) m_RocketTrailT = 0.05f;
+        for (int k = 0; k < 2; k++)
+        {
+            bool away = s.ArmAway(k);
+            // 飛んでいるあいだは、ロボットの前腕から先を消して、拳を飛ばす
+            if (m_Elbow[k].gameObject.activeSelf == away) m_Elbow[k].gameObject.SetActive(!away);
+            if (m_Rocket[k].gameObject.activeSelf != away) m_Rocket[k].gameObject.SetActive(away);
+            if (!away) { m_RocketWasAway[k] = false; continue; }
+            var target = s.RocketPos(k);
+            var rot = Quaternion.Euler(-s.RocketPitch(k) * Mathf.Rad2Deg, s.RocketYaw(k) * Mathf.Rad2Deg, 0f);
+            if (!m_RocketWasAway[k])
+            {
+                // 発射した瞬間：腕の位置から飛び出す
+                m_RocketWasAway[k] = true;
+                m_RocketShown[k] = m_Elbow[k].position;
+                m_RocketRot[k] = rot;
+                Boom(m_Elbow[k].position, 1.0f, Prims.Hex("#ffb02e"));
+            }
+            float kk = 1f - Mathf.Exp(-14f * dt);
+            m_RocketShown[k] = Vector3.Lerp(m_RocketShown[k], target, kk);
+            m_RocketRot[k] = Quaternion.Slerp(m_RocketRot[k], rot, kk);
+            m_Rocket[k].SetPositionAndRotation(m_RocketShown[k], m_RocketRot[k]);
+            float fl = 1f + Mathf.Sin(Time.time * 50f + k) * 0.25f;
+            m_RocketFlame[k].localScale = new Vector3(1.0f, 1.0f, 1.8f * fl) * RobotState.TitanScale;
+            if (trail) Trail(m_RocketFlame[k].position - m_RocketFlame[k].forward * 2f, Prims.Hex("#ffb02e"), 0.9f);
         }
     }
 
@@ -862,8 +1140,9 @@ public class RobotVisual : MonoBehaviour
             b.Life -= dt;
             float t = Mathf.Clamp01(b.Life / b.Max);
             float w = t * t;
-            var cs = b.Core.localScale; b.Core.localScale = new Vector3(2.4f * w + 0.05f, 2.4f * w + 0.05f, cs.z);
-            var gs = b.Glow.localScale; b.Glow.localScale = new Vector3(6f * w * (1f + 0.1f * Mathf.Sin(Time.time * 40f)) + 0.05f, 6f * w + 0.05f, gs.z);
+            float cw = b.Width * 0.4f * w + 0.05f, gw = b.Width * w + 0.05f;
+            var cs = b.Core.localScale; b.Core.localScale = new Vector3(cw, cw, cs.z);
+            var gs = b.Glow.localScale; b.Glow.localScale = new Vector3(gw * (1f + 0.1f * Mathf.Sin(Time.time * 40f)), gw, gs.z);
             if (b.Life <= 0f)
             {
                 Destroy(b.Core.gameObject); Destroy(b.Glow.gameObject);

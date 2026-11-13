@@ -26,6 +26,7 @@ public class GameBootstrap : MonoBehaviour
     InteriorMap.View m_Interior;
     Vector3 m_ExtCamPos, m_ExtCamLook;
     float m_IntSize = 9f;
+    bool m_Piloting;   // ロケットパンチを操縦中（外の画面を全画面にしている）
 
     string m_RoomInput = "";
     string m_UrlInput;
@@ -111,6 +112,32 @@ public class GameBootstrap : MonoBehaviour
         var want = InteriorMap.ToWorld(focus, 30f);
         m_InteriorCam.transform.position = Vector3.Lerp(m_InteriorCam.transform.position, want, 1f - Mathf.Exp(-10f * dt));
 
+        // ロケットパンチを操縦しているあいだ：外の画面を全画面にして、拳のすぐ後ろから見る
+        var rsP = RobotState.Instance;
+        Transform fist = null;
+        if (rsP != null && local != null && RobotVisual.Instance != null && (local.Station.Value == Stations.LeftArm || local.Station.Value == Stations.RightArm))
+        {
+            int arm = local.Station.Value == Stations.LeftArm ? 0 : 1;
+            if (rsP.RocketState(arm) == RobotState.RocketFlying) fist = RobotVisual.Instance.RocketFist(arm);
+        }
+        bool piloting = fist != null;
+        if (piloting != m_Piloting)
+        {
+            m_Piloting = piloting;
+            m_InteriorCam.enabled = !piloting;
+            m_ExteriorCam.rect = piloting ? new Rect(0f, 0f, 1f, 1f) : new Rect(0.5f, 0f, 0.5f, 1f);
+            m_ExteriorCam.fieldOfView = piloting ? 70f : 55f;
+        }
+        if (piloting)
+        {
+            var camPos = fist.position - fist.forward * 9f + Vector3.up * 3f;
+            m_ExtCamPos = camPos;
+            m_ExtCamLook = fist.position + fist.forward * 25f;
+            m_ExteriorCam.transform.position = camPos + UnityEngine.Random.insideUnitSphere * 0.15f;
+            m_ExteriorCam.transform.LookAt(m_ExtCamLook);
+            return;
+        }
+
         // 右：ロボットの斜め後ろから
         var robot = RobotVisual.Instance;
         Vector3 pos, look;
@@ -184,6 +211,12 @@ public class GameBootstrap : MonoBehaviour
         {
             var c = EnergyCells.Color(meC.Carry.Value);
             m_Interior.ReactorIntake.color = new Color(c.r, c.g, c.b, 0.35f + Mathf.Abs(Mathf.Sin(Time.time * 3f)) * 0.35f);
+        }
+
+        for (int k = 0; k < 2; k++)
+        {
+            bool away = rs != null && rs.ArmAway(k);
+            if (m_Interior.ArmCovers[k].gameObject.activeSelf != away) m_Interior.ArmCovers[k].gameObject.SetActive(away);
         }
 
         if (rs != null)
@@ -349,6 +382,14 @@ public class GameBootstrap : MonoBehaviour
         }
         var rs = RobotState.Instance;
         bool lobby = rs != null && rs.GameState.Value == RobotState.Lobby;
+        if (m_Piloting)
+        {
+            // 操縦の照準は StationUI が出す。ここでは敵の大技などの警告だけ
+            DrawStatus();
+            DrawBossWarnings(true);
+            DrawBuffBanner();
+            return;
+        }
         DrawSplitLine();
         DrawInteriorLabels();
         if (lobby)
@@ -365,6 +406,7 @@ public class GameBootstrap : MonoBehaviour
         DrawPrompt();
         DrawTeleportFlash();
         DrawBuffBanner();
+        if (!lobby) DrawBossWarnings(false);
         if (RobotVisual.HitFlash > 0f) DrawRect(new Rect(Screen.width * 0.5f, 0, Screen.width * 0.5f, Screen.height), new Color(1f, 0.2f, 0.1f, RobotVisual.HitFlash * 0.25f));
     }
 
@@ -512,6 +554,45 @@ public class GameBootstrap : MonoBehaviour
     }
 
     /// <summary>転送された直後に左半分を白く光らせる</summary>
+    /// <summary>
+    /// 敵の大技（メガフレア）とチャンスタイムを大きく知らせる。
+    /// 大技：逃げろ＋止めるのに必要なダメージのゲージ、チャンスタイム：残り時間
+    /// </summary>
+    void DrawBossWarnings(bool fullScreen)
+    {
+        var rs = RobotState.Instance;
+        if (rs == null || !rs.BossAlive || rs.GameState.Value != RobotState.Playing) return;
+        float s = m_Scale;
+        float x0 = fullScreen ? 0f : Screen.width * 0.5f, w = fullScreen ? Screen.width : Screen.width * 0.5f;
+        float y = fullScreen ? Screen.height - 150 * s : Screen.height - 170 * s;
+        var big = new GUIStyle(m_Big) { fontSize = Mathf.RoundToInt(24 * s) };
+        if (rs.BossStun.Value > 0f)
+        {
+            var r = new Rect(x0 + w * 0.5f - 260 * s, y, 520 * s, 64 * s);
+            DrawRect(r, new Color(0.15f, 0.12f, 0.02f, 0.85f));
+            DrawRect(new Rect(r.x, r.y, r.width, 4 * s), Prims.Hex("#ffe14a"));
+            big.normal.textColor = Prims.Hex("#ffe14a");
+            GUI.Label(new Rect(r.x, r.y + 2 * s, r.width, 34 * s), $"チャンスタイム！　あと {Mathf.CeilToInt(rs.BossStun.Value)} 秒", big);
+            GUI.Label(new Rect(r.x, r.y + 36 * s, r.width, 24 * s), $"<color=#fff3b0>敵が倒れている。いまはダメージ {RobotState.StunDamageMul:0.0} 倍！ 全力で攻撃しよう</color>", new GUIStyle(m_Small) { alignment = TextAnchor.MiddleCenter });
+            return;
+        }
+        if (rs.BossAction.Value != RobotState.BossMega) return;
+        float left = RobotVisual.Instance != null ? Mathf.Max(0f, RobotState.MegaChargeTime - RobotVisual.Instance.BossActionTime) : 0f;
+        if (left <= 0f) return;
+        var rr = new Rect(x0 + w * 0.5f - 280 * s, y, 560 * s, 84 * s);
+        float blink = 0.7f + Mathf.Abs(Mathf.Sin(Time.time * 6f)) * 0.3f;
+        DrawRect(rr, new Color(0.2f, 0.02f, 0.04f, 0.85f));
+        DrawRect(new Rect(rr.x, rr.y, rr.width, 4 * s), Prims.Hex("#ff3b3b") * blink);
+        big.normal.textColor = Prims.Hex("#ff6a6a") * blink;
+        GUI.Label(new Rect(rr.x, rr.y + 2 * s, rr.width, 32 * s), $"⚠ 大技 メガフレア！ 赤い円から逃げろ（{left:0.0} 秒）", big);
+        // 止めるのに必要なダメージ
+        float br = Mathf.Clamp01(rs.MegaBreak.Value / RobotState.MegaBreakNeed);
+        var bar = new Rect(rr.x + 20 * s, rr.y + 44 * s, rr.width - 40 * s, 14 * s);
+        DrawRect(bar, new Color(0, 0, 0, 0.6f));
+        DrawRect(new Rect(bar.x, bar.y, bar.width * br, bar.height), Prims.Hex("#ffe14a"));
+        GUI.Label(new Rect(rr.x, rr.y + 60 * s, rr.width, 22 * s), "<color=#fff3b0>ためているあいだに大ダメージ（パンチ・ロケットパンチ・必殺技）を与えると止められる → チャンスタイム</color>", new GUIStyle(m_Small) { alignment = TextAnchor.MiddleCenter, wordWrap = false });
+    }
+
     int m_LastBuffId = -1;
     float m_BuffShownAt = -10f;
 
@@ -807,7 +888,7 @@ public class GameBootstrap : MonoBehaviour
             if (rs.BossAction.Value == RobotState.BossSwipe)
             {
                 var warn = new GUIStyle(m_Label) { alignment = TextAnchor.MiddleCenter };
-                GUI.Label(new Rect(center.x - 200 * s, br.y - 30 * s, 400 * s, 24 * s), "<color=#ff6a4a><b>⚠ 腕を振りかぶっている！ 離れるか両腕でガード</b></color>", warn);
+                GUI.Label(new Rect(center.x - 200 * s, br.y - 30 * s, 400 * s, 24 * s), "<color=#ff6a4a><b>⚠ 腕を振りかぶっている！ 赤い範囲から出るか両腕でガード</b></color>", warn);
             }
         }
 
