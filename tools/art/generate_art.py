@@ -177,6 +177,40 @@ def pilot_climb(frame):
     return finish(body), finish(detail)
 
 
+# ------------------------------------------------------------------ エネルギーセル
+
+def cell_body():
+    """エネルギーセル（光る電池）。白い部分に Unity 側で色（緑・赤・青・黄）を掛ける。64x64、下端が足元。"""
+    img = canvas(64, 64)
+    d = ImageDraw.Draw(img)
+    WHITE, SHADE = (255, 255, 255, 255), (200, 206, 214, 255)
+    # 上下の金具
+    rr(d, (22, 6, 42, 14), 3, fill=(150, 156, 166, 255), outline=INK, width=3)
+    rr(d, (18, 50, 46, 60), 3, fill=(150, 156, 166, 255), outline=INK, width=3)
+    # ガラスの胴（中が光っている）
+    rr(d, (18, 12, 46, 52), 8, fill=SHADE, outline=INK, width=4)
+    rr(d, (23, 16, 41, 48), 5, fill=WHITE)
+    # 稲妻のマーク
+    poly(d, [(34, 18), (26, 33), (32, 33), (29, 46), (39, 29), (33, 29)], fill=(255, 255, 255, 255), outline=INK, width=2.5)
+    # ガラスのつや
+    line(d, [(22, 18), (22, 30)], fill=(255, 255, 255, 255), width=3)
+    return finish(img)
+
+
+def cell_glow():
+    """エネルギーセルのまわりのぼんやりした光。白で描いて Unity 側で色を掛ける。"""
+    n = 96 * SS
+    img = Image.new("RGBA", (n, n), (0, 0, 0, 0))
+    px_ = img.load()
+    c = n / 2
+    for y in range(n):
+        for x in range(n):
+            r = math.hypot(x - c, y - c) / c
+            if r < 1:
+                px_[x, y] = (255, 255, 255, int(255 * (1 - r) ** 2 * 0.9))
+    return finish(img)
+
+
 # ------------------------------------------------------------------ 床・壁
 
 def floor_tile():
@@ -760,6 +794,8 @@ def build():
     out["armor_pauldron"] = armor_pauldron()
     out["armor_boot"] = armor_boot()
     out["duct"] = duct()
+    out["cell_body"] = cell_body()
+    out["cell_glow"] = cell_glow()
     for name, img in out.items():
         img.save(os.path.join(OUT, name + ".png"))
     return out

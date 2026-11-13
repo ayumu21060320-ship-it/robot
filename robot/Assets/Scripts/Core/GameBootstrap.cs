@@ -159,6 +159,33 @@ public class GameBootstrap : MonoBehaviour
             if (alert.gameObject.activeSelf != broken) alert.gameObject.SetActive(broken);
             if (broken) alert.transform.localScale = Vector3.one * (1f + Mathf.Abs(Mathf.Sin(Time.time * 4f)) * 0.25f);
         }
+        // エネルギーセル：出ている場所に色つきで光らせ、ふわふわ上下させる
+        for (int i = 0; i < EnergyCells.Count; i++)
+        {
+            int kind = rs != null && rs.CellAt.Count == EnergyCells.Count ? rs.CellAt[i] : -1;
+            bool on = kind >= 0 && rs.GameState.Value == RobotState.Playing;
+            var body = m_Interior.CellBodies[i];
+            var glow = m_Interior.CellGlows[i];
+            if (body.gameObject.activeSelf != on) { body.gameObject.SetActive(on); glow.gameObject.SetActive(on); }
+            if (!on) continue;
+            var c = EnergyCells.Color(kind);
+            body.color = c;
+            glow.color = new Color(c.r, c.g, c.b, 0.55f + Mathf.Sin(Time.time * 4f + i) * 0.25f);
+            var sp = EnergyCells.Spots[i];
+            float bob = Mathf.Sin(Time.time * 2.5f + i) * 0.12f;
+            body.transform.localPosition = new Vector3(sp.x, 0.026f, sp.y + 0.55f + bob);
+            glow.transform.localPosition = new Vector3(sp.x, 0.025f, sp.y + 0.6f + bob);
+        }
+        // セルを持っている人がいるときは、動力炉の入れ口を光らせて行き先を知らせる
+        var meC = CrewPlayer.Local;
+        bool carryingC = meC != null && meC.Carry.Value >= 0;
+        if (m_Interior.ReactorIntake.gameObject.activeSelf != carryingC) m_Interior.ReactorIntake.gameObject.SetActive(carryingC);
+        if (carryingC)
+        {
+            var c = EnergyCells.Color(meC.Carry.Value);
+            m_Interior.ReactorIntake.color = new Color(c.r, c.g, c.b, 0.35f + Mathf.Abs(Mathf.Sin(Time.time * 3f)) * 0.35f);
+        }
+
         if (rs != null)
         {
             float p = rs.Power.Value / RobotState.MaxPower;
@@ -337,6 +364,7 @@ public class GameBootstrap : MonoBehaviour
         }
         DrawPrompt();
         DrawTeleportFlash();
+        DrawBuffBanner();
         if (RobotVisual.HitFlash > 0f) DrawRect(new Rect(Screen.width * 0.5f, 0, Screen.width * 0.5f, Screen.height), new Color(1f, 0.2f, 0.1f, RobotVisual.HitFlash * 0.25f));
     }
 
@@ -484,6 +512,30 @@ public class GameBootstrap : MonoBehaviour
     }
 
     /// <summary>転送された直後に左半分を白く光らせる</summary>
+    int m_LastBuffId = -1;
+    float m_BuffShownAt = -10f;
+
+    /// <summary>エネルギーセルを入れて強化されたとき、外の画面に大きく知らせる（だれが入れても全員に出る）</summary>
+    void DrawBuffBanner()
+    {
+        var rs = RobotState.Instance;
+        if (rs == null) return;
+        if (m_LastBuffId < 0) m_LastBuffId = rs.BuffId.Value;   // 途中から入ったときは出さない
+        if (rs.BuffId.Value != m_LastBuffId) { m_LastBuffId = rs.BuffId.Value; m_BuffShownAt = Time.time; }
+        float t = Time.time - m_BuffShownAt;
+        if (t > 2.5f) return;
+        float a = t < 2f ? 1f : 1f - (t - 2f) / 0.5f;
+        float s = m_Scale;
+        int k = rs.BuffKind.Value;
+        var c = EnergyCells.Color(k);
+        var r = new Rect(Screen.width * 0.5f + 40 * s, Screen.height * 0.3f, Screen.width * 0.5f - 80 * s, 64 * s);
+        DrawRect(r, new Color(0.04f, 0.05f, 0.06f, 0.75f * a));
+        DrawRect(new Rect(r.x, r.y, r.width, 4 * s), new Color(c.r, c.g, c.b, a));
+        var style = new GUIStyle(m_Big) { fontSize = Mathf.RoundToInt(28 * s) };
+        style.normal.textColor = new Color(c.r, c.g, c.b, a);
+        GUI.Label(r, $"強化！ {EnergyCells.Effect(k)}", style);
+    }
+
     void DrawTeleportFlash()
     {
         float t = Time.time - CrewPlayer.TeleportTime;
@@ -595,6 +647,26 @@ public class GameBootstrap : MonoBehaviour
             float d = 6f * s;
             DrawRect(new Rect(c.x - d * 0.5f, c.y - d * 0.5f, d, d), Prims.Hex("#ffb000"));
         }
+        // エネルギーセル（色つきの丸）と、セルを持っているときは動力炉の場所
+        if (rs != null && rs.CellAt.Count == EnergyCells.Count && Mathf.Sin(Time.time * 6f) > -0.5f)
+        {
+            for (int i = 0; i < EnergyCells.Count; i++)
+            {
+                if (rs.CellAt[i] < 0) continue;
+                var c = ToMap(EnergyCells.Spots[i] + new Vector2(0f, 0.5f));
+                float d = 8f * s;
+                DrawRect(new Rect(c.x - d * 0.5f - 1, c.y - d * 0.5f - 1, d + 2, d + 2), new Color(0, 0, 0, 0.8f));
+                DrawRect(new Rect(c.x - d * 0.5f, c.y - d * 0.5f, d, d), EnergyCells.Color(rs.CellAt[i]));
+            }
+        }
+        if (meD != null && meD.Carry.Value >= 0)
+        {
+            var c = ToMap(EnergyCells.ReactorPos + new Vector2(0f, 1f));
+            float d = (10f + Mathf.Abs(Mathf.Sin(Time.time * 4f)) * 6f) * s;
+            var col = EnergyCells.Color(meD.Carry.Value);
+            DrawRect(new Rect(c.x - d * 0.5f, c.y - 1, d, 2), col);
+            DrawRect(new Rect(c.x - 1, c.y - d * 0.5f, 2, d), col);
+        }
         if (meD != null && meD.NearDuct >= 0)
         {
             var a0 = ToMap(Ducts.All[meD.NearDuct].Pos);
@@ -664,7 +736,8 @@ public class GameBootstrap : MonoBehaviour
         float x = Screen.width * 0.5f + 14 * s, y = 12 * s, w = 280 * s;
         bool armL = rs.TaskOk(Tasks.WiresL), armR = rs.TaskOk(Tasks.WiresR);
         bool legL = rs.LegWorks(0), legR = rs.LegWorks(1);
-        int lines = (armL && armR ? 0 : 1) + (legL && legR ? 0 : 1);
+        bool boost = rs.PunchBoost.Value > 0f;
+        int lines = (armL && armR ? 0 : 1) + (legL && legR ? 0 : 1) + (boost ? 1 : 0);
         DrawRect(new Rect(x - 8 * s, y - 6 * s, w + 16 * s, (136 + lines * 22) * s), new Color(0.06f, 0.08f, 0.1f, 0.85f));
         float ly = y + 128 * s;
         if (!armL || !armR)
@@ -677,7 +750,10 @@ public class GameBootstrap : MonoBehaviour
         {
             string stopped = !legL && !legR ? "両脚" : !legL ? "左脚" : "右脚";
             GUI.Label(new Rect(x, ly, w, 24 * s), $"<color=#ff6a4a><b>⚠ {stopped}が停止中（ももの油圧が切れている）</b></color>", m_Small);
+            ly += 22 * s;
         }
+        if (boost)
+            GUI.Label(new Rect(x, ly, w, 24 * s), $"<color=#ff6a6a><b>パンチ強化中（あと {Mathf.CeilToInt(rs.PunchBoost.Value)} 秒・ダメージ {EnergyCells.PunchBoostMul:0.0} 倍）</b></color>", m_Small);
         DrawBar(new Rect(x, y, w, 22 * s), rs.Hull.Value / RobotState.MaxHull, Prims.Hex("#ff6a4a"), $"装甲  {Mathf.CeilToInt(rs.Hull.Value)}");
         DrawBar(new Rect(x, y + 30 * s, w, 22 * s), rs.Power.Value / RobotState.MaxPower, Prims.Hex("#d9a920"), $"動力  {Mathf.CeilToInt(rs.Power.Value)}");
         // 必殺ゲージ（満タンで点滅。頭部砲の席で F）
@@ -754,6 +830,18 @@ public class GameBootstrap : MonoBehaviour
             hint = "操作盤で操縦する";
             hint += "　E で降りる";
         }
+        else if (me.NearReactor)
+        {
+            int k = me.Carry.Value;
+            where = "動力炉（エネルギーの入れ口）";
+            hint = $"E でエネルギーを入れる → <color={EnergyCells.Hex(k)}><b>{EnergyCells.Effect(k)}</b></color>";
+        }
+        else if (me.NearCell >= 0 && rs.CellAt.Count == EnergyCells.Count && rs.CellAt[me.NearCell] >= 0)
+        {
+            int k = rs.CellAt[me.NearCell];
+            where = $"<color={EnergyCells.Hex(k)}>{EnergyCells.Name(k)}のエネルギーセル</color>";
+            hint = $"E で拾う。体の真ん中の動力炉へ運ぶと <color={EnergyCells.Hex(k)}><b>{EnergyCells.Effect(k)}</b></color>";
+        }
         else if (me.NearStation >= 0)
         {
             var def = Stations.All[me.NearStation];
@@ -789,7 +877,9 @@ public class GameBootstrap : MonoBehaviour
         else
         {
             where = InteriorMap.AreaName(me.Pos.Value);
-            hint = rs.TasksBroken > 0 ? "A/D で歩く・はしごは W/S。故障した装置（赤い ！）を直そう" : "A/D で歩く・はしごは W/S。光っている席に近づこう";
+            if (me.Carry.Value >= 0)
+                hint = $"<color={EnergyCells.Hex(me.Carry.Value)}>{EnergyCells.Name(me.Carry.Value)}のセル</color>を持っている。胸の真ん中の動力炉（光っている所）へ運ぼう → {EnergyCells.Effect(me.Carry.Value)}";
+            else hint = rs.TasksBroken > 0 ? "A/D で歩く・はしごは W/S。故障した装置（赤い ！）を直そう" : "A/D で歩く・はしごは W/S。光っている席に近づこう";
         }
         float w = Mathf.Min(Screen.width * 0.5f - 24 * s, 520 * s), h = 76 * s;
         var r = new Rect(12 * s, Screen.height - h - 12 * s, w, h);
