@@ -226,6 +226,9 @@ public class GameBootstrap : MonoBehaviour
             if (m_Interior.ArmCovers[k].gameObject.activeSelf != away) m_Interior.ArmCovers[k].gameObject.SetActive(away);
         }
 
+        // 試合中は、次の試合の終わりに記録を保存できるようにしておく
+        if (rs != null && rs.GameState.Value == RobotState.Playing) { m_BestSaved = false; m_NewBest = false; }
+
         if (rs != null)
         {
             float p = rs.Power.Value / RobotState.MaxPower;
@@ -395,6 +398,7 @@ public class GameBootstrap : MonoBehaviour
             DrawStatus();
             DrawBossWarnings(true);
             DrawBuffBanner();
+            DrawWaveBanner();
             return;
         }
         if (m_Spectating)
@@ -403,6 +407,7 @@ public class GameBootstrap : MonoBehaviour
             DrawBossWarnings(true);
             DrawBuffBanner();
             DrawSpectatorBanner();
+            DrawWaveBanner();
             DrawEnd();
             return;
         }
@@ -422,7 +427,7 @@ public class GameBootstrap : MonoBehaviour
         DrawPrompt();
         DrawTeleportFlash();
         DrawBuffBanner();
-        if (!lobby) DrawBossWarnings(false);
+        if (!lobby) { DrawBossWarnings(false); DrawWaveBanner(); }
         if (RobotVisual.HitFlash > 0f) DrawRect(new Rect(Screen.width * 0.5f, 0, Screen.width * 0.5f, Screen.height), new Color(1f, 0.2f, 0.1f, RobotVisual.HitFlash * 0.25f));
     }
 
@@ -442,6 +447,7 @@ public class GameBootstrap : MonoBehaviour
         DrawRect(r, new Color(0.06f, 0.08f, 0.1f, 0.92f));
         GUILayout.BeginArea(new Rect(r.x + 24 * s, r.y + 20 * s, r.width - 48 * s, r.height - 40 * s));
         GUILayout.Label("タイタンクルー", m_Title);
+        if (BestKills > 0) GUILayout.Label($"<color=#ffe14a><b>最高記録：{BestKills}体 撃破</b></color>", m_Label);
         GUILayout.Label("巨大ロボットの中を走り回り、脚・腕・頭部砲・動力炉の席に乗り込んで、1体のロボットを動かそう。巨大な敵を倒せば勝ち。", m_Label);
         GUILayout.Space(12 * s);
         bool old = GUI.enabled;
@@ -513,7 +519,7 @@ public class GameBootstrap : MonoBehaviour
             "<b>出撃の設定</b>\n" +
             $"最大人数：{MaxPlayers}人\n" +
             $"操縦席：{Stations.Count}（脚2・腕2・頭部砲・動力炉）\n" +
-            $"敵の体力：{RobotState.BossMaxHp:0}\n" +
+            $"連戦：倒すほど次の敵が強くなる\n" +
             "敵の遠距離攻撃：なし\n" +
             "途中参加：できる（ロボットの中に出る）", rules);
 
@@ -894,7 +900,7 @@ public class GameBootstrap : MonoBehaviour
         string spLabel = rs.SpecialCharging.Value ? "必殺技 ため中！" : spc >= 1f ? "必殺技OK！ 頭部砲の席で F" : $"必殺  {Mathf.FloorToInt(spc * 100)}%";
         DrawBar(new Rect(x, y + 60 * s, w, 18 * s), spc, Prims.Hex("#ffd23f") * blink, spLabel);
         int t = Mathf.FloorToInt(rs.Elapsed.Value);
-        GUI.Label(new Rect(x, y + 82 * s, w, 24 * s), $"スコア <color=#ffb000>{rs.Score.Value}</color>　{t / 60}:{t % 60:00}", m_Label);
+        GUI.Label(new Rect(x, y + 82 * s, w, 24 * s), $"<color=#ffe14a><b>撃破 {rs.Kills.Value}体</b></color>　スコア <color=#ffb000>{rs.Score.Value}</color>　{t / 60}:{t % 60:00}", m_Label);
         if (rs.GuardL.Value || rs.GuardR.Value)
         {
             string g = rs.GuardL.Value && rs.GuardR.Value ? "両腕でガード中" : rs.GuardL.Value ? "左腕でガード中" : "右腕でガード中";
@@ -932,7 +938,7 @@ public class GameBootstrap : MonoBehaviour
             var br = new Rect(center.x - bw * 0.5f, center.y - bh * 0.5f, bw, bh);
             // 細いゲージだけ（文字は画面の外にいるときだけ小さく出す）
             DrawRect(new Rect(br.x - 2 * s, br.y - 2 * s, br.width + 4 * s, br.height + 4 * s), new Color(0.04f, 0.05f, 0.06f, 0.85f));
-            DrawRect(new Rect(br.x, br.y, br.width * Mathf.Clamp01(rs.BossHp.Value / RobotState.BossMaxHp), br.height), Prims.Hex("#ff3d7f"));
+            DrawRect(new Rect(br.x, br.y, br.width * Mathf.Clamp01(rs.BossHp.Value / Mathf.Max(1f, rs.BossHpMax.Value)), br.height), Prims.Hex("#ff3d7f"));
             if (!onScreen)
                 GUI.Label(new Rect(br.x, br.y - 18 * s, br.width + 40 * s, 18 * s), "<color=#ff6aa0>巨大な敵（画面の外）</color>", m_Small);
             // 振りかぶっているときは、ゲージの上に警告
@@ -1026,15 +1032,75 @@ public class GameBootstrap : MonoBehaviour
         var rs = RobotState.Instance;
         if (rs == null || rs.GameState.Value == RobotState.Playing) return;
         bool won = rs.GameState.Value == RobotState.Won;
-        DrawRect(new Rect(0, 0, Screen.width, Screen.height), new Color(0, 0, 0, 0.55f));
+        DrawRect(new Rect(0, 0, Screen.width, Screen.height), new Color(0, 0, 0, 0.6f));
         float s = m_Scale;
+        SaveBest(rs.Kills.Value);
         m_Big.normal.textColor = won ? Prims.Hex("#ffb000") : Prims.Hex("#ff6a4a");
-        GUI.Label(new Rect(0, Screen.height * 0.36f, Screen.width, 60 * s), won ? "巨大な敵を倒した！" : rs.Hull.Value > 0f ? "操縦する人がいなくなった…" : "タイタン大破", m_Big);
+        GUI.Label(new Rect(0, Screen.height * 0.28f, Screen.width, 60 * s), won ? "巨大な敵を倒した！" : rs.Hull.Value > 0f ? "操縦する人がいなくなった…" : "タイタン大破", m_Big);
+        // 記録：何体倒せたか（いちばん大きく）
+        var rec = new GUIStyle(m_Big) { fontSize = Mathf.RoundToInt(56 * s) };
+        rec.normal.textColor = Prims.Hex("#ffe14a");
+        GUI.Label(new Rect(0, Screen.height * 0.28f + 64 * s, Screen.width, 76 * s), $"撃破数 {rs.Kills.Value}体", rec);
+        var best = new GUIStyle(m_Label) { alignment = TextAnchor.MiddleCenter, fontSize = Mathf.RoundToInt(20 * s) };
+        GUI.Label(new Rect(0, Screen.height * 0.28f + 142 * s, Screen.width, 30 * s),
+            m_NewBest ? "<color=#7dff6a><b>新記録！</b></color>" : $"<color=#c4d2d8>最高記録 {BestKills}体</color>", best);
         int t = Mathf.FloorToInt(rs.Elapsed.Value);
         var info = $"スコア {rs.Score.Value}　時間 {t / 60}:{t % 60:00}\n" +
                    (networkManager.IsServer ? (RobotState.UseLobby ? "R キーで待機室に戻る" : "R キーでもう一度出撃")
                                             : "ホストが待機室に戻すのを待っています");
         var style = new GUIStyle(m_Label) { alignment = TextAnchor.MiddleCenter };
-        GUI.Label(new Rect(0, Screen.height * 0.36f + 70 * s, Screen.width, 60 * s), info, style);
+        GUI.Label(new Rect(0, Screen.height * 0.28f + 180 * s, Screen.width, 60 * s), info, style);
+    }
+
+    // ---- 最高記録（このブラウザ・PC に保存。何体倒せたか）
+    const string BestKey = "titan_best_kills";
+    bool m_BestSaved, m_NewBest;
+
+    static int BestKills
+    {
+        get { try { return PlayerPrefs.GetInt(BestKey, 0); } catch (Exception) { return 0; } }
+    }
+
+    void SaveBest(int kills)
+    {
+        if (m_BestSaved) return;
+        m_BestSaved = true;
+        m_NewBest = kills > BestKills && kills > 0;
+        if (!m_NewBest) return;
+        try { PlayerPrefs.SetInt(BestKey, kills); PlayerPrefs.Save(); } catch (Exception) { }
+    }
+
+    /// <summary>連戦：撃破したとき・次の敵が出たときの大きな知らせ</summary>
+    int m_SeenWave = -1;
+    float m_WaveShownAt = -10f;
+    void DrawWaveBanner()
+    {
+        var rs = RobotState.Instance;
+        if (rs == null || rs.GameState.Value != RobotState.Playing) return;
+        float s = m_Scale;
+        float x0 = m_FullExterior ? 0f : Screen.width * 0.5f, w = m_FullExterior ? Screen.width : Screen.width * 0.5f;
+        if (m_SeenWave < 0) m_SeenWave = rs.Wave.Value;
+        if (rs.Wave.Value != m_SeenWave) { m_SeenWave = rs.Wave.Value; m_WaveShownAt = Time.time; }
+        var big = new GUIStyle(m_Big) { fontSize = Mathf.RoundToInt(40 * s) };
+        var sub = new GUIStyle(m_Label) { alignment = TextAnchor.MiddleCenter, fontSize = Mathf.RoundToInt(20 * s) };
+        if (rs.NextWaveT.Value > 0f)
+        {
+            var r = new Rect(x0, Screen.height * 0.22f, w, 130 * s);
+            DrawRect(r, new Color(0.03f, 0.04f, 0.05f, 0.75f));
+            big.normal.textColor = Prims.Hex("#ffe14a");
+            GUI.Label(new Rect(r.x, r.y + 8 * s, r.width, 56 * s), $"撃破！ {rs.Kills.Value}体目", big);
+            GUI.Label(new Rect(r.x, r.y + 68 * s, r.width, 26 * s), $"装甲を少し修理した。次の敵が来る… {Mathf.CeilToInt(rs.NextWaveT.Value)}", sub);
+            GUI.Label(new Rect(r.x, r.y + 96 * s, r.width, 26 * s), "<color=#ff8a6a>次の敵はもっと強い</color>", sub);
+            return;
+        }
+        float t = Time.time - m_WaveShownAt;
+        if (t < 3f)
+        {
+            float a = t < 2.4f ? 1f : 1f - (t - 2.4f) / 0.6f;
+            var r = new Rect(x0, Screen.height * 0.22f, w, 70 * s);
+            DrawRect(r, new Color(0.15f, 0.02f, 0.06f, 0.75f * a));
+            big.normal.textColor = new Color(1f, 0.42f, 0.55f, a);
+            GUI.Label(r, $"{rs.Wave.Value}体目の敵が現れた！", big);
+        }
     }
 }

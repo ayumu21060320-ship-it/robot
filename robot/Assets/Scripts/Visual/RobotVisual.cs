@@ -525,6 +525,10 @@ public class RobotVisual : MonoBehaviour
         // ---- 倒されたとき：前に倒れ込んで地面に沈み、しばらくして消える
         if (!alive)
         {
+            // 倒れた敵の攻撃の範囲は消す
+            if (m_SwipeZone != null && m_SwipeZone.gameObject.activeSelf) m_SwipeZone.gameObject.SetActive(false);
+            if (m_CircleZone != null && m_CircleZone.gameObject.activeSelf) m_CircleZone.gameObject.SetActive(false);
+            m_BossT = -1f; m_BossCharge = 0f; m_BossStunAmt = 0f;
             if (!m_Boss.gameObject.activeSelf) return;
             if (m_BossDeadT < 0f) m_BossDeadT = 0f;
             m_BossDeadT += dt;
