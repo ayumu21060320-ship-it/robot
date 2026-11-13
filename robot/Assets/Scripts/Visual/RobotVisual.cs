@@ -1038,11 +1038,13 @@ public class RobotVisual : MonoBehaviour
         if (trail) m_RocketTrailT = 0.05f;
         for (int k = 0; k < 2; k++)
         {
-            bool away = s.ArmAway(k);
-            // 飛んでいるあいだは、ロボットの前腕から先を消して、拳を飛ばす
+            bool away = s.ArmAway(k);                                   // 飛んでいる・もうない
+            bool flying = s.RocketState(k) == RobotState.RocketFlying;
+            // 飛ばした腕は前腕から先がなくなる（試合が終わるまで戻らない）。飛んでいるあいだだけ拳を見せる
             if (m_Elbow[k].gameObject.activeSelf == away) m_Elbow[k].gameObject.SetActive(!away);
-            if (m_Rocket[k].gameObject.activeSelf != away) m_Rocket[k].gameObject.SetActive(away);
-            if (!away) { m_RocketWasAway[k] = false; continue; }
+            if (m_Rocket[k].gameObject.activeSelf != flying) m_Rocket[k].gameObject.SetActive(flying);
+            if (!away) m_RocketWasAway[k] = false;
+            if (!flying) continue;
             var target = s.RocketPos(k);
             var rot = Quaternion.Euler(-s.RocketPitch(k) * Mathf.Rad2Deg, s.RocketYaw(k) * Mathf.Rad2Deg, 0f);
             if (!m_RocketWasAway[k])

@@ -197,9 +197,14 @@ public class StationUI : MonoBehaviour
         }
     }
 
+    float m_RocketConfirmT = -10f;   // 1回目を押した時刻（3秒以内にもう一度押すと発射）
+
+    /// <summary>ロケットパンチは一度きり（腕も自分も戻らない）なので、2回押したら発射する</summary>
     void TryLaunchRocket(RobotState rs, int k)
     {
-        if (rs.ArmAway(k) || rs.RocketCd(k) > 0f || rs.Power.Value < 10f) return;
+        if (rs.ArmAway(k) || rs.Power.Value < 10f) return;
+        if (Time.time - m_RocketConfirmT > 3f) { m_RocketConfirmT = Time.time; return; }
+        m_RocketConfirmT = -10f;
         rs.LaunchRocketRpc();
     }
 
@@ -440,19 +445,22 @@ public class StationUI : MonoBehaviour
         // ロケットパンチの発射ボタン（タイトルの行の右）
         {
             int k = left ? 0 : 1;
-            float cd = rs.RocketCd(k);
-            bool ready = cd <= 0f && rs.Power.Value >= 10f;
-            var rb = new Rect(a.xMax - 200 * s, a.y - 40 * s, 200 * s, 32 * s);
-            float rbl = ready ? 0.8f + Mathf.Abs(Mathf.Sin(Time.time * 4f)) * 0.2f : 1f;
-            UIDraw.Fill(rb, ready ? Prims.Hex("#ff5a2a") * rbl : new Color(0.25f, 0.27f, 0.3f));
+            bool ready = rs.Power.Value >= 10f;
+            bool confirm = Time.time - m_RocketConfirmT <= 3f;
+            var rb = new Rect(a.xMax - 220 * s, a.y - 40 * s, 220 * s, 32 * s);
+            float rbl = ready ? 0.8f + Mathf.Abs(Mathf.Sin(Time.time * (confirm ? 12f : 4f))) * 0.2f : 1f;
+            UIDraw.Fill(rb, ready ? (confirm ? Prims.Hex("#ff2a2a") : Prims.Hex("#ff5a2a")) * rbl : new Color(0.25f, 0.27f, 0.3f));
             UIDraw.Frame(rb, ready ? Color.white : new Color(0.1f, 0.1f, 0.1f), 2f);
             var rs2 = new GUIStyle(m_Center) { fontSize = Mathf.RoundToInt(14 * s) };
             rs2.normal.textColor = ready ? Color.white : new Color(0.62f, 0.66f, 0.7f);
-            GUI.Label(rb, ready ? "ロケットパンチ（F）" : cd > 0f ? $"ロケットパンチ 準備中 {Mathf.CeilToInt(cd)}秒" : "動力が足りない", rs2);
+            GUI.Label(rb, !ready ? "動力が足りない" : confirm ? "もう一度押すと発射！" : "ロケットパンチ（F）", rs2);
+            if (confirm)
+                GUI.Label(new Rect(rb.x - 120 * s, rb.yMax + 2 * s, rb.width + 120 * s, 20 * s),
+                    "<color=#ff8a6a>一度きり：腕は戻らず、あなたはこの試合を観戦になる</color>", new GUIStyle(m_Small) { alignment = TextAnchor.UpperRight, wordWrap = false });
             if (ready && e.type == EventType.MouseDown && rb.Contains(e.mousePosition)) { TryLaunchRocket(rs, k); e.Use(); }
         }
 
-        string help = "Space（か S・レバーをドラッグ）で引いて、引ききったら離すとパンチ。W 長押しでガード。F でロケットパンチ（拳を飛ばして自分で操縦）";
+        string help = "Space（か S・レバーをドラッグ）で引いて、引ききったら離すとパンチ。W 長押しでガード。F を2回でロケットパンチ（一度きりの切り札）";
         GUI.Label(new Rect(a.x, a.yMax - 44 * s, a.width, 44 * s), help, m_Small);
 
         // 肩の配線が切れていると腕が動かない：操作盤全体を赤く覆って知らせる
@@ -490,7 +498,7 @@ public class StationUI : MonoBehaviour
         UIDraw.Fill(top, new Color(0.04f, 0.05f, 0.06f, 0.7f));
         var big = new GUIStyle(m_Center) { fontSize = Mathf.RoundToInt(22 * s) };
         big.normal.textColor = flying ? Prims.Hex("#ffb000") : new Color(0.7f, 0.75f, 0.8f);
-        GUI.Label(new Rect(top.x, top.y + 4 * s, top.width, 32 * s), flying ? $"ロケットパンチ操縦中　あと {rs.RocketLife(k):0.0} 秒" : "腕が戻っている…", big);
+        GUI.Label(new Rect(top.x, top.y + 4 * s, top.width, 32 * s), $"ロケットパンチ操縦中　あと {rs.RocketLife(k):0.0} 秒", big);
         GUI.Label(new Rect(top.x, top.y + 38 * s, top.width, 26 * s), "A / D：左右に曲がる　　W / S：上 / 下　　敵に体当たりで大ダメージ", m_Center);
 
         // 敵の方向（拳の向きから見て）。正面から外れているときは、画面のふちに矢印

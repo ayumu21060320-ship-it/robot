@@ -33,6 +33,8 @@ public class CrewPlayer : NetworkBehaviour
     public NetworkVariable<int> Slot = new NetworkVariable<int>(0);
     /// <summary>持っているエネルギーセルの色（-1 = 持っていない）。ホストが書く</summary>
     public NetworkVariable<int> Carry = new NetworkVariable<int>(-1);
+    /// <summary>ロケットパンチで腕と一緒に飛んでいった：この試合は観戦だけ（次の試合で戻る）。ホストが書く</summary>
+    public NetworkVariable<bool> Spectating = new NetworkVariable<bool>(false);
 
     public Vector2 DisplayPos { get; private set; }
     /// <summary>本人の近くにある席（なければ -1）。HUD の案内表示に使う。</summary>
@@ -140,7 +142,7 @@ public class CrewPlayer : NetworkBehaviour
 
         transform.position = InteriorMap.ToWorld(DisplayPos);
         // ダクトの中にいるあいだは姿を消す
-        bool hidden = InDuct.Value;
+        bool hidden = InDuct.Value || Spectating.Value;   // ダクトの中・観戦中は姿を消す
         if (m_Avatar && m_Avatar.gameObject.activeSelf == hidden) m_Avatar.gameObject.SetActive(!hidden);
         if (m_Shadow && hidden) m_Shadow.enabled = false;
         if (m_Avatar && !hidden)
@@ -306,6 +308,27 @@ public class CrewPlayer : NetworkBehaviour
                 Teleport(wantLobby ? InteriorMap.LobbySpawn(Slot.Value) : InteriorMap.CenterSpawn(Slot.Value));
                 if (TaskUI.IsOpen) TaskUI.Instance.Close();
                 return;
+            }
+            // 観戦中（ロケットパンチで飛んでいった）：何もできない
+            if (Spectating.Value)
+            {
+                if (TaskUI.IsOpen) TaskUI.Instance.Close();
+                if (Stick.Value != Vector2.zero) Stick.Value = Vector2.zero;
+                if (ActHeld.Value) ActHeld.Value = false;
+                NearStation = NearTask = NearDuct = NearCell = -1;
+                NearReactor = false;
+                return;
+            }
+            // 飛んでいった腕（ひじから先）の中にいたら、肩の足場へ逃がす（腕の席で操縦している人はそのまま）
+            for (int k = 0; k < 2; k++)
+            {
+                int armSt = k == 0 ? Stations.LeftArm : Stations.RightArm;
+                if (robot.ArmAway(k) && Station.Value != armSt && InteriorMap.ArmCover(k).Contains(Pos.Value))
+                {
+                    var l = InteriorMap.Ladders[k == 0 ? 1 : 2];
+                    Teleport(new Vector2(l.X, l.Y1));
+                    return;
+                }
             }
         }
 
