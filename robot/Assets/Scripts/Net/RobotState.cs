@@ -86,6 +86,12 @@ public class RobotState : NetworkBehaviour
     public NetworkList<int> FireHp;     // 席ごとの火災（0 = 燃えていない、残り消火回数）
     public NetworkList<int> TaskBroken; // 整備タスクごとに 1 = 故障中
     public NetworkList<int> BuildingHp; // ビルごとの耐久（0 = 崩れた）
+    public NetworkList<int> CellAt;     // エネルギーセルの出る場所ごとに、出ているセルの色（-1 = 出ていない）
+
+    // ---- エネルギーセルの強化
+    public NetworkVariable<float> PunchBoost = new NetworkVariable<float>();   // パンチ強化の残り時間（秒）
+    public NetworkVariable<int> BuffId = new NetworkVariable<int>();           // 強化するたびに +1（見た目の合図）
+    public NetworkVariable<int> BuffKind = new NetworkVariable<int>();         // 最後に入れたセルの色
 
     RobotVisual m_Visual;
 
@@ -99,6 +105,7 @@ public class RobotState : NetworkBehaviour
     float m_BossCd, m_BossActT;
     bool m_BossHitDone;
     float m_SpecialT = -1f;
+    float m_CellT;
     struct Bolt { public Vector2 P; public Vector2 D; public float Life; }
 
     void Awake()
@@ -107,6 +114,7 @@ public class RobotState : NetworkBehaviour
         FireHp = new NetworkList<int>();
         TaskBroken = new NetworkList<int>();
         BuildingHp = new NetworkList<int>();
+        CellAt = new NetworkList<int>();
     }
 
     public override void OnNetworkSpawn()
@@ -255,6 +263,11 @@ public class RobotState : NetworkBehaviour
         for (int i = 0; i < Stations.Count; i++) { Occupant.Add(0); FireHp.Add(0); m_Cooldown[i] = 0f; }
         TaskBroken.Clear();
         for (int i = 0; i < Tasks.Count; i++) TaskBroken.Add(0);
+        CellAt.Clear();
+        for (int i = 0; i < EnergyCells.Count; i++) CellAt.Add(-1);
+        m_CellT = EnergyCells.FirstSpawn;
+        PunchBoost.Value = 0f;
+        foreach (var cp in CrewPlayer.All) cp.Carry.Value = -1;
         BuildingHp.Clear();
         for (int i = 0; i < ExteriorWorld.Buildings.Count; i++) BuildingHp.Add(3);
         Special.Value = 0f;
@@ -437,6 +450,7 @@ public class RobotState : NetworkBehaviour
             }
         }
 
+        UpdateCells(dt);
         UpdateBolts(dt);
         UpdateBoss(dt);
 
@@ -461,10 +475,65 @@ public class RobotState : NetworkBehaviour
         var fist = LocalToWorld(side * shoulder + Mathf.Sin(aim) * reach, Mathf.Cos(aim) * reach);
         if (BossAlive && Vector2.Distance(BossPos.Value, fist) < BossRadius + 4f)
         {
-            DamageBoss(PunchDamage);
+            DamageBoss(PunchBoost.Value > 0f ? PunchDamage * EnergyCells.PunchBoostMul : PunchDamage);
             BoomFxRpc(new Vector3(fist.x, 15.4f * TitanScale, fist.y), 1.6f, new Color(1f, 0.82f, 0.25f));
         }
         CrushBuildings(fist, 5f);   // 拳の先のビルは一撃で崩れる
+    }
+
+    // ================================================================ エネルギーセル（やってもやらなくてもよい強化）
+
+    public int CellsActive
+    {
+        get { int n = 0; for (int i = 0; i < CellAt.Count; i++) if (CellAt[i] >= 0) n++; return n; }
+    }
+
+    void UpdateCells(float dt)
+    {
+        if (PunchBoost.Value > 0f) PunchBoost.Value = Mathf.Max(0f, PunchBoost.Value - dt);
+        if (CellAt.Count != EnergyCells.Count) return;
+        m_CellT -= dt;
+        if (m_CellT > 0f) return;
+        m_CellT = Random.Range(EnergyCells.SpawnMin, EnergyCells.SpawnMax);
+        if (CellsActive >= EnergyCells.MaxActive) return;
+        // 空いている場所のどこかに、ランダムな色のセルを出す
+        var free = new List<int>();
+        for (int i = 0; i < CellAt.Count; i++) if (CellAt[i] < 0) free.Add(i);
+        if (free.Count == 0) return;
+        CellAt[free[Random.Range(0, free.Count)]] = Random.Range(0, EnergyCells.KindCount);
+    }
+
+    /// <summary>エネルギーセルを拾う</summary>
+    [Rpc(SendTo.Server)]
+    public void PickupCellRpc(int spot, RpcParams rpcParams = default)
+    {
+        var p = GetPlayer(rpcParams.Receive.SenderClientId);
+        if (p == null || GameState.Value != Playing || p.Carry.Value >= 0 || p.Station.Value >= 0) return;
+        if (spot < 0 || spot >= CellAt.Count || CellAt[spot] < 0) return;
+        if (Vector2.Distance(p.Pos.Value, EnergyCells.Spots[spot]) > EnergyCells.PickRange + 0.6f) return;
+        p.Carry.Value = CellAt[spot];
+        CellAt[spot] = -1;
+    }
+
+    /// <summary>持っているエネルギーセルを動力炉に入れて、ロボットを強化する</summary>
+    [Rpc(SendTo.Server)]
+    public void DeliverCellRpc(RpcParams rpcParams = default)
+    {
+        var p = GetPlayer(rpcParams.Receive.SenderClientId);
+        if (p == null || GameState.Value != Playing || p.Carry.Value < 0) return;
+        if (Vector2.Distance(p.Pos.Value, EnergyCells.ReactorPos) > EnergyCells.DeliverRange + 0.6f) return;
+        int kind = p.Carry.Value;
+        p.Carry.Value = -1;
+        switch (kind)
+        {
+            case EnergyCells.Green: Hull.Value = Mathf.Min(MaxHull, Hull.Value + EnergyCells.HullHeal); break;
+            case EnergyCells.Red: PunchBoost.Value = EnergyCells.PunchBoostTime; break;
+            case EnergyCells.Blue: if (!SpecialCharging.Value) Special.Value = Mathf.Min(SpecialMax, Special.Value + EnergyCells.SpecialGain); break;
+            default: Power.Value = MaxPower; break;
+        }
+        BuffKind.Value = kind;
+        BuffId.Value++;
+        Score.Value += 30;
     }
 
     // ================================================================ ビル

@@ -199,6 +199,9 @@ public static class InteriorMap
         public SpriteRenderer[] Fires = new SpriteRenderer[Stations.Count];
         public SpriteRenderer ReactorCore;
         public SpriteRenderer[] TaskAlerts = new SpriteRenderer[Tasks.Count];
+        public SpriteRenderer[] CellBodies = new SpriteRenderer[EnergyCells.Count];
+        public SpriteRenderer[] CellGlows = new SpriteRenderer[EnergyCells.Count];
+        public SpriteRenderer ReactorIntake;
     }
 
     // 重なり順（小さいほど奥）
@@ -260,6 +263,20 @@ public static class InteriorMap
         float rh = 192f / Art.PixelsPerUnit * 0.5f;
         Art.Place(root, "reactor_base", new Vector3(ReactorPos.x, 0.02f, ReactorPos.y + rh), OrderProp, null, "動力炉 本体");
         v.ReactorCore = Art.Place(root, "reactor_core", new Vector3(ReactorPos.x, 0.02f, ReactorPos.y + rh), OrderProp + 1, Prims.Hex("#ffd23f"), "動力炉 芯");
+
+        // エネルギーセル（出ていないときは隠しておく）と、動力炉の入れ口の光
+        for (int i = 0; i < EnergyCells.Count; i++)
+        {
+            var sp = EnergyCells.Spots[i];
+            v.CellGlows[i] = Art.Place(root, "cell_glow", new Vector3(sp.x, 0.025f, sp.y + 0.55f), OrderProp + 4, null, "エネルギーセル（光）");
+            v.CellGlows[i].transform.localScale = Vector3.one * 1.3f;
+            v.CellBodies[i] = Art.Place(root, "cell_body", new Vector3(sp.x, 0.026f, sp.y + 0.5f), OrderProp + 5, null, "エネルギーセル");
+            v.CellGlows[i].gameObject.SetActive(false);
+            v.CellBodies[i].gameObject.SetActive(false);
+        }
+        v.ReactorIntake = Art.Place(root, "cell_glow", new Vector3(ReactorPos.x, 0.025f, ReactorPos.y + 1.4f), OrderProp + 6, null, "動力炉の入れ口");
+        v.ReactorIntake.transform.localScale = Vector3.one * 3.2f;
+        v.ReactorIntake.gameObject.SetActive(false);
 
         // 足場に置いた荷物や機械（設計マス：x, 足場の高さ, 大きさ）
         (string sprite, float x, float y, float scale)[] props =

@@ -31,6 +31,8 @@ public class CrewPlayer : NetworkBehaviour
     // ホストが書く
     public NetworkVariable<int> Station = new NetworkVariable<int>(-1);
     public NetworkVariable<int> Slot = new NetworkVariable<int>(0);
+    /// <summary>持っているエネルギーセルの色（-1 = 持っていない）。ホストが書く</summary>
+    public NetworkVariable<int> Carry = new NetworkVariable<int>(-1);
 
     public Vector2 DisplayPos { get; private set; }
     /// <summary>本人の近くにある席（なければ -1）。HUD の案内表示に使う。</summary>
@@ -39,11 +41,16 @@ public class CrewPlayer : NetworkBehaviour
     public int NearTask { get; private set; } = -1;
     /// <summary>本人の近くにあるダクト（なければ -1）。</summary>
     public int NearDuct { get; private set; } = -1;
+    /// <summary>本人の近くにある、拾えるエネルギーセルの場所（なければ -1）。</summary>
+    public int NearCell { get; private set; } = -1;
+    /// <summary>セルを持って動力炉のそばにいる（E で入れられる）</summary>
+    public bool NearReactor { get; private set; }
     public Color Color => Colors[Mathf.Clamp(Slot.Value, 0, Colors.Length - 1)];
     public string Label => "P" + (Slot.Value + 1);
 
     Transform m_Avatar;
     SpriteRenderer m_Body, m_Detail, m_Shadow;
+    SpriteRenderer m_CarryGlow, m_CarryCell;   // 持っているエネルギーセル（頭の上に掲げる）
     float m_Walk;
     float m_Climb;   // はしごを登り降りした距離（登るアニメーションのコマ送りに使う）
     bool m_FacingRight = true;
@@ -98,6 +105,10 @@ public class CrewPlayer : NetworkBehaviour
         m_Shadow.transform.localScale = new Vector3(0.6f, 0.5f, 1f);
         m_Body = Art.Place(m_Avatar, "pilot_body_0", new Vector3(0f, 0.05f, SpriteLift), InteriorMap.OrderPilot, null, "Body");
         m_Detail = Art.Place(m_Avatar, "pilot_detail_0", new Vector3(0f, 0.06f, SpriteLift), InteriorMap.OrderPilot + 1, null, "Detail");
+        m_CarryGlow = Art.Place(m_Avatar, "cell_glow", new Vector3(0f, 0.07f, 2.05f), InteriorMap.OrderPilot + 2, null, "持っているセル（光）");
+        m_CarryCell = Art.Place(m_Avatar, "cell_body", new Vector3(0f, 0.08f, 2.05f), InteriorMap.OrderPilot + 3, null, "持っているセル");
+        m_CarryGlow.transform.localScale = m_CarryCell.transform.localScale = Vector3.one * 0.7f;
+        m_CarryGlow.enabled = m_CarryCell.enabled = false;
     }
 
     void ApplyColor()
@@ -156,6 +167,16 @@ public class CrewPlayer : NetworkBehaviour
             m_Shadow.enabled = onFloor;
             float bounce = onFloor ? Mathf.Abs(Mathf.Sin(m_Walk)) * 0.08f : 0f;
             m_Avatar.localPosition = new Vector3(0f, 0f, bounce);
+            // 持っているエネルギーセルを頭の上に掲げる（色は種類ごと、ゆっくり光る）
+            bool carrying = Carry.Value >= 0;
+            if (m_CarryCell.enabled != carrying) m_CarryCell.enabled = m_CarryGlow.enabled = carrying;
+            if (carrying)
+            {
+                var c = EnergyCells.Color(Carry.Value);
+                float pulse = 0.6f + Mathf.Sin(Time.time * 6f) * 0.25f;
+                m_CarryGlow.color = new Color(c.r, c.g, c.b, pulse);
+                m_CarryCell.color = c;
+            }
         }
     }
 
@@ -163,13 +184,31 @@ public class CrewPlayer : NetworkBehaviour
     /// 横から見た断面図での移動。足場の上を A/D で歩き、はしごの前で W/S を押すと登り降りする。
     /// 足場のないところでは落ちる。
     /// </summary>
+    /// <summary>エネルギーセルを持っているあいだは少し遅い</summary>
+    float CarryFactor => Carry.Value >= 0 ? EnergyCells.CarrySpeed : 1f;
+
+    /// <summary>近くにある、拾えるエネルギーセルの場所</summary>
+    static int NearestCell(RobotState robot, Vector2 p)
+    {
+        if (robot == null || robot.CellAt.Count != EnergyCells.Count) return -1;
+        int best = -1;
+        float bd = EnergyCells.PickRange;
+        for (int i = 0; i < EnergyCells.Count; i++)
+        {
+            if (robot.CellAt[i] < 0) continue;
+            float d = Vector2.Distance(p, EnergyCells.Spots[i]);
+            if (d < bd) { bd = d; best = i; }
+        }
+        return best;
+    }
+
     Vector2 MoveSideView(Vector2 p, Vector2 mv, float dt)
     {
         if (m_Ladder >= 0)
         {
             var l = InteriorMap.Ladders[m_Ladder];
             p.x = l.X;
-            p.y = Mathf.Clamp(p.y + mv.y * ClimbSpeed * dt, l.Y0, l.Y1);
+            p.y = Mathf.Clamp(p.y + mv.y * ClimbSpeed * CarryFactor * dt, l.Y0, l.Y1);
             bool atFloor = InteriorMap.OnFloor(p.x, p.y, 0.3f, out float fy);
             // 足場の高さで左右に入力すると、はしごから降りて歩き出す
             if (atFloor && Mathf.Abs(mv.x) > 0.5f && Mathf.Abs(mv.y) < 0.5f) { p.y = fy; m_Ladder = -1; }
@@ -187,7 +226,7 @@ public class CrewPlayer : NetworkBehaviour
 
         // 左右に歩く（今いる足場の端から先へは出ない）
         int cw = InteriorMap.CatwalkAt(p.x, p.y);
-        float nx = p.x + mv.x * Speed * dt;
+        float nx = p.x + mv.x * Speed * CarryFactor * dt;
         if (cw >= 0) nx = Mathf.Clamp(nx, InteriorMap.Catwalks[cw].X0 + Radius, InteriorMap.Catwalks[cw].X1 - Radius);
         p.x = nx;
 
@@ -289,10 +328,21 @@ public class CrewPlayer : NetworkBehaviour
         {
             Pos.Value = MoveSideView(Pos.Value, mv, Time.deltaTime);
             if (Stick.Value != Vector2.zero) Stick.Value = Vector2.zero;
-            NearStation = InteriorMap.NearestStation(Pos.Value, UseRange);
-            NearTask = NearStation < 0 ? Tasks.Nearest(Pos.Value, UseRange) : -1;
-            NearDuct = NearStation < 0 && NearTask < 0 && m_Ladder < 0 ? Ducts.Nearest(Pos.Value, Ducts.UseRange) : -1;
-            if (robot != null && NearStation >= 0 && robot.FireHp.Count == Stations.Count)
+            bool carrying = Carry.Value >= 0;
+            NearReactor = carrying && m_Ladder < 0 && Vector2.Distance(Pos.Value, EnergyCells.ReactorPos) < EnergyCells.DeliverRange;
+            NearStation = NearReactor ? -1 : InteriorMap.NearestStation(Pos.Value, UseRange);
+            NearCell = NearStation < 0 && !carrying && !NearReactor && m_Ladder < 0 ? NearestCell(robot, Pos.Value) : -1;
+            NearTask = NearStation < 0 && NearCell < 0 && !NearReactor ? Tasks.Nearest(Pos.Value, UseRange) : -1;
+            NearDuct = NearStation < 0 && NearTask < 0 && NearCell < 0 && !NearReactor && m_Ladder < 0 ? Ducts.Nearest(Pos.Value, Ducts.UseRange) : -1;
+            if (NearReactor)
+            {
+                if (robot != null && playing && use) robot.DeliverCellRpc();   // 動力炉にエネルギーを入れる
+            }
+            else if (NearCell >= 0)
+            {
+                if (playing && use) robot.PickupCellRpc(NearCell);           // エネルギーセルを拾う
+            }
+            else if (robot != null && NearStation >= 0 && robot.FireHp.Count == Stations.Count)
             {
                 bool onFire = robot.FireHp[NearStation] > 0;
                 if (onFire && (actPressed || use)) robot.RepairRpc(NearStation);
@@ -332,6 +382,8 @@ public class CrewPlayer : NetworkBehaviour
             NearStation = st;
             NearTask = -1;
             NearDuct = -1;
+            NearCell = -1;
+            NearReactor = false;
             if (use && robot != null) robot.LeaveStationRpc();
         }
 

@@ -421,6 +421,7 @@ public class RobotVisual : MonoBehaviour
         m_Sight.SetActive(s.Occupant.Count > Stations.Head && s.Occupant[Stations.Head] != 0);
 
         UpdateSpecial(dt);
+        UpdateBuffs(dt);
         UpdateBuildings(dt);
         UpdateBoss(dt);
 
@@ -748,6 +749,40 @@ public class RobotVisual : MonoBehaviour
         }
         float d = Vector2.Distance(new Vector2(at.x, at.z), m_Pos);
         if (d < 40f) Shake = Mathf.Max(Shake, 0.3f + size * 0.2f);
+    }
+
+    // ---------------------------------------------------------------- エネルギーセルの強化
+
+    int m_LastBuffId = -1;
+    float m_BuffFlash, m_BoostSparkT;
+
+    void UpdateBuffs(float dt)
+    {
+        var s = m_State;
+        if (m_LastBuffId < 0) m_LastBuffId = s.BuffId.Value;
+        if (s.BuffId.Value != m_LastBuffId)
+        {
+            // セルが入った：胸からその色の光がはじける
+            m_LastBuffId = s.BuffId.Value;
+            m_BuffFlash = 1f;
+            var c = EnergyCells.Color(s.BuffKind.Value);
+            if (m_ChestLight != null) Boom(m_ChestLight.transform.position, 1.3f, c);
+        }
+        if (m_BuffFlash > 0f && m_ChargeT < 0f && m_ChestLight != null)
+        {
+            m_BuffFlash = Mathf.Max(0f, m_BuffFlash - dt * 1.2f);
+            Prims.SetColor(m_ChestLight, Color.Lerp(m_ChestBase, EnergyCells.Color(s.BuffKind.Value), m_BuffFlash));
+        }
+        // パンチ強化中：両方の拳から赤い火花
+        if (s.PunchBoost.Value > 0f)
+        {
+            m_BoostSparkT -= dt;
+            if (m_BoostSparkT <= 0f)
+            {
+                m_BoostSparkT = 0.35f;
+                for (int i = 0; i < 2; i++) Boom(m_Hand[i].position, 0.3f, EnergyCells.Color(EnergyCells.Red));
+            }
+        }
     }
 
     public void Hit()
