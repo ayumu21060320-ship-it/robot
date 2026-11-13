@@ -50,7 +50,8 @@ public class RobotState : NetworkBehaviour
     public const float MegaRadius = 18f;          // 円の半径
     const float MegaDamage = 28f;
     public const float MegaBreakNeed = 45f;       // ためのあいだにこれだけダメージを与えると止められる
-    const float MegaFirst = 35f, MegaEvery = 45f; // 最初に使うまで／次に使うまで（秒）
+    const float MegaFirst = 70f;                  // 試合が始まってから最初に使うまで（秒）
+    const float MegaEveryMin = 90f, MegaEveryMax = 120f;   // 次に使うまで（秒）。大技はたまにだけ
     public const float StunTime = 9f;             // 大技を止めたときのチャンスタイム（敵が倒れている）
     public const float StunDamageMul = 1.5f;      // チャンスタイム中のダメージ倍率
 
@@ -773,7 +774,7 @@ public class RobotState : NetworkBehaviour
         {
             // 大技：今タイタンがいる場所をねらう
             kind = BossMega;
-            m_MegaCd = MegaEvery;
+            m_MegaCd = Random.Range(MegaEveryMin, MegaEveryMax);
             BossTarget.Value = Pos.Value;
             MegaBreak.Value = 0f;
         }
