@@ -21,9 +21,9 @@ public class RobotState : NetworkBehaviour
     public const float TitanScale = 1.8f;
 
     // ---- 巨大ロボットらしい重い動き（ゆっくり加速・ゆっくり止まる）
-    const float WalkSpeedMax = 3.4f;     // 両脚レバー全開での歩く速さ（m/秒）
-    const float TurnSpeedMax = 0.22f;    // 旋回の速さ（ラジアン/秒）
-    const float WalkAccel = 0.9f;        // 速さが変わる早さ（m/秒²）
+    public const float WalkSpeedMax = 7f;  // 両脚レバー全開での速さ（m/秒）。駆け足くらい
+    const float TurnSpeedMax = 0.32f;    // 旋回の速さ（ラジアン/秒）
+    const float WalkAccel = 2.0f;        // 速さが変わる早さ（m/秒²）
     const float LeverRate = 0.45f;       // レバーを倒す速さ（1秒で 45%）
     const float ArmAimRate = 0.55f, HeadAimRate = 0.7f;
     public const float PunchTime = 1.4f; // パンチの腕振り全体の時間（見た目と合わせる）
@@ -32,13 +32,14 @@ public class RobotState : NetworkBehaviour
     const float PunchDamage = 25f;       // ロボットの本命の攻撃なので強め（敵の体力の約1割）
 
     // ---- 巨大な敵（1体だけ）
-    public const float BossMaxHp = 220f;          // 操縦が大変なので、敵は少し弱め
+    public const float BossMaxHp = 320f;          // タイタンが速く動けるようになったぶん、敵も強め
     public const float BossRadius = 11f;           // 当たり判定の半径（m）
     public static readonly Vector2 BossStart = new Vector2(0f, 150f);
-    const float BossWalkSpeed = 2.3f, BossTurnSpeed = 0.5f, BossReach = 38f;
+    public const float BossWalkSpeed = 4f;
+    const float BossTurnSpeed = 0.6f, BossReach = 38f;
     public const float BossSwipeWindup = 1.8f;    // 腕を振りかぶっている時間（見た目と合わせる）
     public const int BossIdle = 0, BossSwipe = 1, BossBarrage = 2, BossStomp = 3, BossMega = 4;   // BossBarrage（遠距離の光弾）は使わない
-    const float SwipeDamage = 6f, StompDamage = 2.5f;   // 装甲は厚め
+    const float SwipeDamage = 9f, StompDamage = 4f;
     // 攻撃の範囲（攻撃の前に地面に赤く出る。範囲の外へ逃げればよけられる）
     public const float SwipeArc = 55f;            // 振り下ろし：敵の正面から左右それぞれ何度まで
     public const float SwipeReach = BossReach;    // 振り下ろし：届く距離
@@ -47,8 +48,8 @@ public class RobotState : NetworkBehaviour
 
     // ---- 敵の大技「メガフレア」：タイタンのいた場所に大きな円が出て、ためが終わると大爆発
     public const float MegaChargeTime = 7f;       // ため（このあいだに円の外へ逃げる）
-    public const float MegaRadius = 18f;          // 円の半径
-    const float MegaDamage = 28f;
+    public const float MegaRadius = 24f;          // 円の半径（タイタンが速くなったので大きめ）
+    const float MegaDamage = 34f;
     public const float MegaBreakNeed = 45f;       // ためのあいだにこれだけダメージを与えると止められる
     const float MegaFirst = 70f;                  // 試合が始まってから最初に使うまで（秒）
     const float MegaEveryMin = 90f, MegaEveryMax = 120f;   // 次に使うまで（秒）。大技はたまにだけ
@@ -916,7 +917,7 @@ public class RobotState : NetworkBehaviour
     void EndBossAction()
     {
         BossAction.Value = BossIdle;
-        m_BossCd = Random.Range(7f, 11f);
+        m_BossCd = Random.Range(6f, 9f);
     }
 
     void DamageBoss(float dmg)
