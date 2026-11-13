@@ -285,8 +285,8 @@ public class TaskUI : MonoBehaviour
             m_Scale = s;
             m_Title = new GUIStyle(GUI.skin.label) { fontSize = Mathf.RoundToInt(22 * s), fontStyle = FontStyle.Bold, richText = true };
             m_Title.normal.textColor = Prims.Hex("#ffb000");
-            m_Text = new GUIStyle(GUI.skin.label) { fontSize = Mathf.RoundToInt(15 * s), wordWrap = true, richText = true };
-            m_Text.normal.textColor = new Color(0.85f, 0.9f, 0.92f);
+            m_Text = new GUIStyle(GUI.skin.label) { fontSize = Mathf.RoundToInt(17 * s), wordWrap = true, richText = true, fontStyle = FontStyle.Bold };
+            m_Text.normal.textColor = Color.white;
             m_Center = new GUIStyle(m_Text) { alignment = TextAnchor.MiddleCenter, fontStyle = FontStyle.Bold };
         }
 
@@ -298,8 +298,11 @@ public class TaskUI : MonoBehaviour
         Fill(panel, new Color(0.11f, 0.13f, 0.15f, 0.97f));
         Frame(panel, m_FailT > 0f ? new Color(0.9f, 0.25f, 0.2f) : m_DoneT >= 0f ? new Color(0.4f, 0.9f, 0.4f) : Prims.Hex("#ffb000"), 4f * s);
 
-        GUI.Label(new Rect(panel.x + 18 * s, panel.y + 12 * s, w - 36 * s, 30 * s), $"{def.Name}<size={Mathf.RoundToInt(14 * s)}><color=#93a6ae>　{def.Room}</color></size>", m_Title);
-        GUI.Label(new Rect(panel.x + 18 * s, panel.y + 44 * s, w - 36 * s, 40 * s), Instruction() + "　<color=#93a6ae>E：閉じる</color>", m_Text);
+        GUI.Label(new Rect(panel.x + 18 * s, panel.y + 12 * s, w - 36 * s, 30 * s), $"{def.Name}<size={Mathf.RoundToInt(14 * s)}><color=#c4d2d8>　{def.Room}</color></size>", m_Title);
+        // やり方の説明：濃い帯の上に白い太字で
+        var ins = new Rect(panel.x + 12 * s, panel.y + 42 * s, w - 24 * s, 42 * s);
+        Fill(ins, new Color(0.02f, 0.03f, 0.04f, 0.9f));
+        GUI.Label(new Rect(ins.x + 8 * s, ins.y + 1 * s, ins.width - 16 * s, ins.height), Instruction() + $"　<size={Mathf.RoundToInt(13 * s)}><color=#c4d2d8>E：閉じる</color></size>", m_Text);
         var area = new Rect(panel.x + 18 * s, panel.y + 86 * s, w - 36 * s, h - 104 * s);
         Fill(area, new Color(0.07f, 0.08f, 0.09f));
 

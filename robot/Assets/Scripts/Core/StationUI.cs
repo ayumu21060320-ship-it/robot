@@ -238,8 +238,8 @@ public class StationUI : MonoBehaviour
         m_Title.normal.textColor = Prims.Hex("#ffb000");
         m_Text = new GUIStyle(GUI.skin.label) { fontSize = Mathf.RoundToInt(15 * s), wordWrap = true, richText = true };
         m_Text.normal.textColor = new Color(0.86f, 0.9f, 0.92f);
-        m_Small = new GUIStyle(m_Text) { fontSize = Mathf.RoundToInt(12.5f * s) };
-        m_Small.normal.textColor = new Color(0.62f, 0.7f, 0.74f);
+        m_Small = new GUIStyle(m_Text) { fontSize = Mathf.RoundToInt(13.5f * s) };
+        m_Small.normal.textColor = new Color(0.84f, 0.89f, 0.91f);
         m_Center = new GUIStyle(m_Text) { alignment = TextAnchor.MiddleCenter, fontStyle = FontStyle.Bold };
     }
 
@@ -270,7 +270,7 @@ public class StationUI : MonoBehaviour
                                   new Vector2(panel.x + 12 * s, panel.yMax - 12 * s), new Vector2(panel.xMax - 12 * s, panel.yMax - 12 * s) })
             UIDraw.Dot(c, 7 * s, new Color(0.4f, 0.44f, 0.48f));
 
-        GUI.Label(new Rect(panel.x + 24 * s, panel.y + 12 * s, w - 48 * s, 28 * s), $"{def.Name} 操作盤　<size={Mathf.RoundToInt(13 * s)}><color=#93a6ae>E：席を降りる</color></size>", m_Title);
+        GUI.Label(new Rect(panel.x + 24 * s, panel.y + 12 * s, w - 48 * s, 28 * s), $"{def.Name} 操作盤　<size={Mathf.RoundToInt(13 * s)}><color=#c4d2d8>E：席を降りる</color></size>", m_Title);
         var area = new Rect(panel.x + 22 * s, panel.y + 48 * s, w - 44 * s, h - 66 * s);
 
         switch (def.Type)
@@ -396,7 +396,7 @@ public class StationUI : MonoBehaviour
         {
             float shown = Mathf.Clamp(rel, -maxDeg - 15f, maxDeg + 15f);
             UIDraw.Dot(UIDraw.Point(c, r + 14 * s, shown), 14 * s, Prims.Hex("#ff3d7f"));
-            GUI.Label(new Rect(c.x - r, c.y + 12 * s, r * 2f, 22 * s), inRange ? "<color=#7dff6a><b>敵が射程内！</b></color>" : $"<color=#93a6ae>敵まで {Mathf.RoundToInt(dist)}m</color>", m_Center);
+            GUI.Label(new Rect(c.x - r, c.y + 12 * s, r * 2f, 22 * s), inRange ? "<color=#7dff6a><b>敵が射程内！</b></color>" : $"<color=#c4d2d8>敵まで {Mathf.RoundToInt(dist)}m</color>", m_Center);
         }
         UIDraw.Line(c, UIDraw.Point(c, r * 0.95f, aim * Mathf.Rad2Deg), 6 * s, Prims.Hex("#ff9a3c"));
         UIDraw.Dot(c, 16 * s, Prims.Hex("#c8d0d6"));
@@ -552,7 +552,7 @@ public class StationUI : MonoBehaviour
             UIDraw.Dot(UIDraw.Point(c, r * d / range, rel), 16 * s, Prims.Hex("#ff3d7f") * blink);
             bool aimed = Mathf.Abs(Mathf.DeltaAngle(rel, aimDeg)) < 6f;
             GUI.Label(new Rect(c.x + r + 10 * s, c.y - 40 * s, a.xMax - c.x - r - 10 * s, 80 * s),
-                $"敵\n{Mathf.RoundToInt(to.magnitude)}m\n{(aimed ? "<color=#7dff6a><b>照準OK</b></color>" : "<color=#93a6ae>ずれている</color>")}", m_Text);
+                $"敵\n{Mathf.RoundToInt(to.magnitude)}m\n{(aimed ? "<color=#7dff6a><b>照準OK</b></color>" : "<color=#c4d2d8>ずれている</color>")}", m_Text);
         }
         UIDraw.Dot(c, 12 * s, Prims.Hex("#ffb000"));   // 自分（タイタン）
 
@@ -588,7 +588,7 @@ public class StationUI : MonoBehaviour
             float rel2 = Mathf.DeltaAngle(rs.Yaw.Value * Mathf.Rad2Deg, Mathf.Atan2(to2.x, to2.y) * Mathf.Rad2Deg);
             bool front = Mathf.Abs(rel2) < 8f;
             GUI.Label(new Rect(colX, btn.yMax + 4 * s, colW, 40 * s),
-                front ? "<color=#7dff6a><b>胴の正面に敵</b></color>" : "<color=#93a6ae>胴の正面に\n敵がいない</color>", m_Small);
+                front ? "<color=#7dff6a><b>胴の正面に敵</b></color>" : "<color=#c4d2d8>胴の正面に\n敵がいない</color>", m_Small);
         }
 
         string help = "A/D かレーダーをクリックして砲塔を回す。Space 長押しで連射";
