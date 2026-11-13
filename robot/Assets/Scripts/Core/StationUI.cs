@@ -122,6 +122,16 @@ public class StationUI : MonoBehaviour
                     Stick = Vector2.zero; Held = false; m_Pull = 0f; m_DragPunch = false; m_MouseGuard = false; m_AimTarget = float.NaN;
                     break;
                 }
+                int armK = st == Stations.LeftArm ? 0 : 1;
+                // ロケットパンチを飛ばしているあいだ：A/D で左右、W/S で上下に拳を操縦する
+                if (rs.ArmAway(armK))
+                {
+                    Stick = new Vector2(x, y);
+                    Held = false; m_Pull = 0f; m_DragPunch = false; m_MouseGuard = false; m_AimTarget = float.NaN;
+                    break;
+                }
+                // ロケットパンチの発射：F（ゲームパッドは Y）
+                if ((kb != null && kb.fKey.wasPressedThisFrame) || (gp != null && gp.buttonNorth.wasPressedThisFrame)) TryLaunchRocket(rs, armK);
                 // 狙い：A/D か、ダイヤルをクリックした向きへ
                 float aim = st == Stations.LeftArm ? rs.AimL.Value : rs.AimR.Value;
                 if (Mathf.Abs(x) > 0.1f) { m_AimTarget = float.NaN; Stick = new Vector2(x, 0f); }
@@ -187,6 +197,12 @@ public class StationUI : MonoBehaviour
         }
     }
 
+    void TryLaunchRocket(RobotState rs, int k)
+    {
+        if (rs.ArmAway(k) || rs.RocketCd(k) > 0f || rs.Power.Value < 10f) return;
+        rs.LaunchRocketRpc();
+    }
+
     void TryFireSpecial(RobotState rs)
     {
         if (rs.Special.Value < RobotState.SpecialMax || rs.SpecialCharging.Value) return;
@@ -233,6 +249,12 @@ public class StationUI : MonoBehaviour
         Styles(s);
 
         var def = Stations.All[m_Station];
+        // ロケットパンチを操縦しているあいだは、操作盤のかわりに全画面の照準を出す
+        if (def.Type == StationType.Arm)
+        {
+            int k = m_Station == Stations.LeftArm ? 0 : 1;
+            if (rs.RocketState(k) == RobotState.RocketFlying) { DrawRocketHud(rs, k, s); return; }
+        }
         float half = Screen.width * 0.5f;
         float w = Mathf.Min(half - 36f * s, 520f * s), h = Mathf.Min(w * 0.86f, Screen.height - 220f * s);
         var panel = new Rect((half - w) * 0.5f, Mathf.Max(60f * s, (Screen.height - h) * 0.5f - 40f * s), w, h);
@@ -415,7 +437,22 @@ public class StationUI : MonoBehaviour
             if (!guarding) UIDraw.Frame(new Rect(m_GuardRect.x - 4 * s, m_GuardRect.y - 4 * s, m_GuardRect.width + 8 * s, m_GuardRect.height + 8 * s), new Color(1f, 0.4f, 0.3f, bl), 3f * s);
         }
 
-        string help = "Space（か S・レバーをドラッグ）で引いて、引ききったら離すとパンチ。W 長押しでガード（両腕だと攻撃をほぼ防げる）";
+        // ロケットパンチの発射ボタン（タイトルの行の右）
+        {
+            int k = left ? 0 : 1;
+            float cd = rs.RocketCd(k);
+            bool ready = cd <= 0f && rs.Power.Value >= 10f;
+            var rb = new Rect(a.xMax - 200 * s, a.y - 40 * s, 200 * s, 32 * s);
+            float rbl = ready ? 0.8f + Mathf.Abs(Mathf.Sin(Time.time * 4f)) * 0.2f : 1f;
+            UIDraw.Fill(rb, ready ? Prims.Hex("#ff5a2a") * rbl : new Color(0.25f, 0.27f, 0.3f));
+            UIDraw.Frame(rb, ready ? Color.white : new Color(0.1f, 0.1f, 0.1f), 2f);
+            var rs2 = new GUIStyle(m_Center) { fontSize = Mathf.RoundToInt(14 * s) };
+            rs2.normal.textColor = ready ? Color.white : new Color(0.62f, 0.66f, 0.7f);
+            GUI.Label(rb, ready ? "ロケットパンチ（F）" : cd > 0f ? $"ロケットパンチ 準備中 {Mathf.CeilToInt(cd)}秒" : "動力が足りない", rs2);
+            if (ready && e.type == EventType.MouseDown && rb.Contains(e.mousePosition)) { TryLaunchRocket(rs, k); e.Use(); }
+        }
+
+        string help = "Space（か S・レバーをドラッグ）で引いて、引ききったら離すとパンチ。W 長押しでガード。F でロケットパンチ（拳を飛ばして自分で操縦）";
         GUI.Label(new Rect(a.x, a.yMax - 44 * s, a.width, 44 * s), help, m_Small);
 
         // 肩の配線が切れていると腕が動かない：操作盤全体を赤く覆って知らせる
@@ -429,6 +466,50 @@ public class StationUI : MonoBehaviour
             string side = left ? "左" : "右";
             GUI.Label(new Rect(a.x, a.center.y - 50 * s, a.width, 40 * s), $"⚠ {side}腕が動かない", big);
             GUI.Label(new Rect(a.x, a.center.y, a.width, 50 * s), $"{side}肩の配線が切れている。\n{side}肩（胸の上の段の{(left ? "左" : "右")}端）の装置を直そう", m_Center);
+        }
+    }
+
+    // ---------------- ロケットパンチの操縦（全画面）
+
+    void DrawRocketHud(RobotState rs, int k, float s)
+    {
+        float W = Screen.width, H = Screen.height;
+        var c = new Vector2(W * 0.5f, H * 0.5f);
+        bool flying = rs.RocketState(k) == RobotState.RocketFlying;
+        var green = new Color(0.55f, 1f, 0.45f, 0.9f);
+        // 照準
+        UIDraw.Arc(c, 34 * s, 0f, 360f, 2f, green, 32);
+        UIDraw.Line(c + new Vector2(-60 * s, 0), c + new Vector2(-40 * s, 0), 2f, green);
+        UIDraw.Line(c + new Vector2(40 * s, 0), c + new Vector2(60 * s, 0), 2f, green);
+        UIDraw.Line(c + new Vector2(0, -60 * s), c + new Vector2(0, -40 * s), 2f, green);
+        UIDraw.Line(c + new Vector2(0, 40 * s), c + new Vector2(0, 60 * s), 2f, green);
+        UIDraw.Dot(c, 5 * s, green);
+
+        // 上：状態と操作
+        var top = new Rect(W * 0.5f - 300 * s, 16 * s, 600 * s, 70 * s);
+        UIDraw.Fill(top, new Color(0.04f, 0.05f, 0.06f, 0.7f));
+        var big = new GUIStyle(m_Center) { fontSize = Mathf.RoundToInt(22 * s) };
+        big.normal.textColor = flying ? Prims.Hex("#ffb000") : new Color(0.7f, 0.75f, 0.8f);
+        GUI.Label(new Rect(top.x, top.y + 4 * s, top.width, 32 * s), flying ? $"ロケットパンチ操縦中　あと {rs.RocketLife(k):0.0} 秒" : "腕が戻っている…", big);
+        GUI.Label(new Rect(top.x, top.y + 38 * s, top.width, 26 * s), "A / D：左右に曲がる　　W / S：上 / 下　　敵に体当たりで大ダメージ", m_Center);
+
+        // 敵の方向（拳の向きから見て）。正面から外れているときは、画面のふちに矢印
+        if (rs.BossAlive && flying)
+        {
+            var p = rs.RocketPos(k);
+            var to = rs.BossPos.Value - new Vector2(p.x, p.z);
+            float rel = Mathf.DeltaAngle(rs.RocketYaw(k) * Mathf.Rad2Deg, Mathf.Atan2(to.x, to.y) * Mathf.Rad2Deg);
+            string where = Mathf.Abs(rel) < 12f ? "<color=#7dff6a><b>正面！</b></color>" : rel > 0 ? $"右 {Mathf.RoundToInt(rel)}°" : $"左 {Mathf.RoundToInt(-rel)}°";
+            GUI.Label(new Rect(c.x - 150 * s, c.y + 70 * s, 300 * s, 26 * s), $"敵：{where}　{Mathf.RoundToInt(to.magnitude)}m", m_Center);
+            if (Mathf.Abs(rel) >= 12f)
+            {
+                float side = Mathf.Sign(rel);
+                var ac = new Vector2(c.x + side * Mathf.Min(W * 0.42f, 420 * s), c.y);
+                float blink = 0.6f + Mathf.Abs(Mathf.Sin(Time.time * 6f)) * 0.4f;
+                var red = Prims.Hex("#ff3d7f") * blink;
+                UIDraw.Line(ac + new Vector2(-side * 24 * s, -22 * s), ac, 6 * s, red);
+                UIDraw.Line(ac + new Vector2(-side * 24 * s, 22 * s), ac, 6 * s, red);
+            }
         }
     }
 

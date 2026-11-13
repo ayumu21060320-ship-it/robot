@@ -208,7 +208,15 @@ public class CrewPlayer : NetworkBehaviour
         {
             var l = InteriorMap.Ladders[m_Ladder];
             p.x = l.X;
+            float oldY = p.y;
             p.y = Mathf.Clamp(p.y + mv.y * ClimbSpeed * CarryFactor * dt, l.Y0, l.Y1);
+            // ロケットパンチで腕が飛んでいるあいだは、その腕（ひじから先）へは降りられない
+            var rb = RobotState.Instance;
+            if (rb != null && (m_Ladder == 1 || m_Ladder == 2) && rb.ArmAway(m_Ladder - 1))
+            {
+                float top = InteriorMap.ArmCover(m_Ladder - 1).yMax + 0.1f;
+                if (oldY >= top && p.y < top) p.y = top;
+            }
             bool atFloor = InteriorMap.OnFloor(p.x, p.y, 0.3f, out float fy);
             // 足場の高さで左右に入力すると、はしごから降りて歩き出す
             if (atFloor && Mathf.Abs(mv.x) > 0.5f && Mathf.Abs(mv.y) < 0.5f) { p.y = fy; m_Ladder = -1; }
@@ -334,6 +342,10 @@ public class CrewPlayer : NetworkBehaviour
             NearCell = NearStation < 0 && !carrying && !NearReactor && m_Ladder < 0 ? NearestCell(robot, Pos.Value) : -1;
             NearTask = NearStation < 0 && NearCell < 0 && !NearReactor ? Tasks.Nearest(Pos.Value, UseRange) : -1;
             NearDuct = NearStation < 0 && NearTask < 0 && NearCell < 0 && !NearReactor && m_Ladder < 0 ? Ducts.Nearest(Pos.Value, Ducts.UseRange) : -1;
+            // 出口が飛んでいる腕の中にあるダクトは使えない
+            if (NearDuct >= 0 && robot != null)
+                for (int k = 0; k < 2; k++)
+                    if (robot.ArmAway(k) && InteriorMap.ArmCover(k).Contains(Ducts.All[Ducts.All[NearDuct].Link].Pos)) NearDuct = -1;
             if (NearReactor)
             {
                 if (robot != null && playing && use) robot.DeliverCellRpc();   // 動力炉にエネルギーを入れる
