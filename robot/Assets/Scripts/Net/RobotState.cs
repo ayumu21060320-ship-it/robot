@@ -32,7 +32,13 @@ public class RobotState : NetworkBehaviour
     const float PunchDamage = 25f;       // ロボットの本命の攻撃なので強め（敵の体力の約1割）
 
     // ---- 巨大な敵（1体だけ）
-    public const float BossMaxHp = 320f;          // タイタンが速く動けるようになったぶん、敵も強め
+    public const float BossMaxHp = 320f;          // 1体目の体力（2体目からは強くなる）
+
+    // ---- 連戦：敵を倒すと、少し休んだあと次の（もっと強い）敵が出てくる。何体倒せたかを競う
+    public const float NextWaveDelay = 8f;        // 倒してから次の敵が出るまで（秒）
+    const float WaveHpGrow = 0.25f;               // 1体ごとに体力 +25%
+    const float WaveDamageGrow = 0.15f;           // 1体ごとに攻撃力 +15%
+    const float WaveRepair = 30f;                 // 倒したごほうびに装甲を回復
     public const float BossRadius = 11f;           // 当たり判定の半径（m）
     public static readonly Vector2 BossStart = new Vector2(0f, 150f);
     public const float BossWalkSpeed = 4f;
@@ -96,6 +102,13 @@ public class RobotState : NetworkBehaviour
     public NetworkVariable<Vector2> BossPos = new NetworkVariable<Vector2>();
     public NetworkVariable<float> BossYaw = new NetworkVariable<float>();
     public NetworkVariable<float> BossHp = new NetworkVariable<float>(BossMaxHp);
+    public NetworkVariable<float> BossHpMax = new NetworkVariable<float>(BossMaxHp);   // 今の敵の最大体力
+    public NetworkVariable<int> Wave = new NetworkVariable<int>(1);        // 今が何体目か
+    public NetworkVariable<int> Kills = new NetworkVariable<int>();        // 倒した数
+    public NetworkVariable<float> NextWaveT = new NetworkVariable<float>(); // 次の敵が出るまでの残り（0 = 戦闘中）
+
+    /// <summary>今の敵の攻撃力の倍率（連戦で強くなる）</summary>
+    float DamageMul => 1f + WaveDamageGrow * (Wave.Value - 1);
     public NetworkVariable<float> BossSpeed = new NetworkVariable<float>();
     public NetworkVariable<int> BossAction = new NetworkVariable<int>();       // 今の攻撃の種類
     public NetworkVariable<int> BossActionId = new NetworkVariable<int>();     // 攻撃を始めるたびに +1（見た目の合図）
@@ -298,6 +311,10 @@ public class RobotState : NetworkBehaviour
         MoveSpeed.Value = TurnRate.Value = 0f;
 
         BossPos.Value = BossStart;
+        Wave.Value = 1;
+        Kills.Value = 0;
+        NextWaveT.Value = 0f;
+        BossHpMax.Value = BossMaxHp;
         BossYaw.Value = Mathf.PI;          // ロボットのほう（-z）を向いて始まる
         BossHp.Value = BossMaxHp;
         BossSpeed.Value = 0f;
@@ -506,6 +523,7 @@ public class RobotState : NetworkBehaviour
         UpdateCells(dt);
         UpdateRockets(dt);
         UpdateBolts(dt);
+        UpdateWaves(dt);
         UpdateBoss(dt);
 
         if (Hull.Value <= 0f) GameState.Value = Lost;
@@ -714,7 +732,7 @@ public class RobotState : NetworkBehaviour
                         if (InSwipe(bp, BossYaw.Value, Pos.Value))
                         {
                             float g = GuardAmount();
-                            RobotHit(SwipeDamage * (1f - g), g);
+                            RobotHit(SwipeDamage * DamageMul * (1f - g), g);
                             // 両腕でガードしていれば、火事や配線切れは起きない
                             if (Random.value < 0.1f * (1f - g)) StartFire();
                             // 爪が肩に当たって、片方の腕の配線が切れることがある
@@ -733,7 +751,7 @@ public class RobotState : NetworkBehaviour
                         if (dist < StompRange + ExteriorWorld.RobotRadius * 0.5f)
                         {
                             float g = GuardAmount();
-                            RobotHit(StompDamage * (1f - g * 0.5f), g * 0.5f);   // 足踏みの揺れはガードで半分しか防げない
+                            RobotHit(StompDamage * DamageMul * (1f - g * 0.5f), g * 0.5f);   // 足踏みの揺れはガードで半分しか防げない
                             // 地面の揺れで、片方の脚の油圧が切れることがある
                             if (Random.value < 0.07f) BreakTask(Random.value < 0.5f ? Tasks.GaugeL : Tasks.GaugeR);
                         }
@@ -750,7 +768,7 @@ public class RobotState : NetworkBehaviour
                         if (Vector2.Distance(Pos.Value, tg) < MegaRadius + ExteriorWorld.RobotRadius * 0.4f)
                         {
                             float g = GuardAmount() * 0.5f;
-                            RobotHit(MegaDamage * (1f - g), g);
+                            RobotHit(MegaDamage * DamageMul * (1f - g), g);
                             if (Random.value < 0.4f * (1f - g)) StartFire();
                         }
                         CrushBuildings(tg, MegaRadius, false);
@@ -936,8 +954,44 @@ public class RobotState : NetworkBehaviour
         if (BossHp.Value > 0f) return;
         var bp = BossPos.Value;
         BoomFxRpc(new Vector3(bp.x, 20f, bp.y), 6f, new Color(1f, 0.24f, 0.5f));
-        Score.Value += 3000 + Mathf.Max(0, 3000 - Mathf.FloorToInt(Elapsed.Value) * 5);
-        GameState.Value = Won;
+        // 撃破！ 少し休んで次の敵へ（ゲームは続く）
+        Kills.Value++;
+        Score.Value += 2000 * Wave.Value;
+        Hull.Value = Mathf.Min(MaxHull, Hull.Value + WaveRepair);
+        NextWaveT.Value = NextWaveDelay;
+        BossAction.Value = BossIdle;
+        BossStun.Value = 0f;
+        MegaBreak.Value = 0f;
+        BossSpeed.Value = 0f;
+    }
+
+    /// <summary>連戦：次の敵が出るまでの時間を数えて、出す</summary>
+    void UpdateWaves(float dt)
+    {
+        if (NextWaveT.Value <= 0f) return;
+        NextWaveT.Value = Mathf.Max(0f, NextWaveT.Value - dt);
+        if (NextWaveT.Value > 0f) return;
+        // 次の敵：タイタンから離れた場所に、強くなって出てくる
+        Wave.Value++;
+        float hp = BossMaxHp * (1f + WaveHpGrow * (Wave.Value - 1));
+        BossHpMax.Value = hp;
+        BossHp.Value = hp;
+        float b = ExteriorWorld.Bounds - 25f;
+        Vector2 spawn = BossStart;
+        for (int tries = 0; tries < 12; tries++)
+        {
+            float a = Random.Range(0f, Mathf.PI * 2f);
+            var p = Pos.Value + new Vector2(Mathf.Sin(a), Mathf.Cos(a)) * 140f;
+            if (Mathf.Abs(p.x) < b && Mathf.Abs(p.y) < b) { spawn = p; break; }
+            spawn = new Vector2(Mathf.Clamp(p.x, -b, b), Mathf.Clamp(p.y, -b, b));
+        }
+        BossPos.Value = spawn;
+        var to = Pos.Value - spawn;
+        BossYaw.Value = Mathf.Atan2(to.x, to.y);
+        BossAction.Value = BossIdle;
+        m_BossCd = 8f;
+        m_MegaCd = MegaFirst * 0.7f;
+        BoomFxRpc(new Vector3(spawn.x, 10f, spawn.y), 5f, new Color(0.7f, 0.3f, 1f));
     }
 
     /// <summary>今ガードしている量（腕1本 0.4、両腕 0.8）</summary>
