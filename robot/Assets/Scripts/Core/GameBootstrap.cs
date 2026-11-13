@@ -366,8 +366,8 @@ public class GameBootstrap : MonoBehaviour
         m_Scale = s;
         m_Label = new GUIStyle(GUI.skin.label) { fontSize = Mathf.RoundToInt(16 * s), wordWrap = true, richText = true };
         m_Label.normal.textColor = new Color(0.91f, 0.93f, 0.94f);
-        m_Small = new GUIStyle(m_Label) { fontSize = Mathf.RoundToInt(13 * s) };
-        m_Small.normal.textColor = new Color(0.66f, 0.74f, 0.77f);
+        m_Small = new GUIStyle(m_Label) { fontSize = Mathf.RoundToInt(14 * s) };
+        m_Small.normal.textColor = new Color(0.84f, 0.89f, 0.91f);   // 小さい文字も読みやすい明るさに
         m_Title = new GUIStyle(m_Label) { fontSize = Mathf.RoundToInt(44 * s), fontStyle = FontStyle.Bold };
         m_Title.normal.textColor = Prims.Hex("#ffb000");
         m_Big = new GUIStyle(m_Label) { fontSize = Mathf.RoundToInt(34 * s), fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleCenter };
@@ -458,7 +458,7 @@ public class GameBootstrap : MonoBehaviour
                 GUILayout.Label("サーバー", m_Label, GUILayout.Width(90 * s));
                 m_UrlInput = GUILayout.TextField(m_UrlInput, 120, m_Field, GUILayout.Width(330 * s), GUILayout.Height(32 * s));
                 GUILayout.EndHorizontal();
-                GUILayout.Label("<color=#93a6ae>自分のPCで server を起動したときは ws://localhost:8080/ws のまま。公開したサーバーなら、そのアドレス（例：my-titan.onrender.com）</color>", m_Small);
+                GUILayout.Label("<color=#c4d2d8>自分のPCで server を起動したときは ws://localhost:8080/ws のまま。公開したサーバーなら、そのアドレス（例：my-titan.onrender.com）</color>", m_Small);
                 GUILayout.Space(6 * s);
             }
             GUILayout.BeginHorizontal();
@@ -476,7 +476,7 @@ public class GameBootstrap : MonoBehaviour
         }
         else
         {
-            GUILayout.Label("<color=#93a6ae>いまは1人用。部屋番号でみんなと遊ぶには Netcode for GameObjects のパッケージが必要です（README の「オンラインの準備」）。</color>", m_Small);
+            GUILayout.Label("<color=#c4d2d8>いまは1人用。部屋番号でみんなと遊ぶには Netcode for GameObjects のパッケージが必要です（README の「オンラインの準備」）。</color>", m_Small);
             GUILayout.Space(10 * s);
         }
 
@@ -559,7 +559,7 @@ public class GameBootstrap : MonoBehaviour
             bool host = p.OwnerClientId == NetworkManager.ServerClientId;
             bool me = p == CrewPlayer.Local;
             GUI.Label(new Rect(row.x + 20 * s, row.y, row.width - 24 * s, row.height),
-                $"<b>{p.Label}</b>{(host ? "　<color=#ffb000>ホスト</color>" : "")}{(me ? "　<color=#93a6ae>（あなた）</color>" : "")}", listStyle);
+                $"<b>{p.Label}</b>{(host ? "　<color=#ffb000>ホスト</color>" : "")}{(me ? "　<color=#c4d2d8>（あなた）</color>" : "")}", listStyle);
             ly += 40 * s;
         }
         var hint = new GUIStyle(m_Small) { alignment = TextAnchor.UpperCenter };
@@ -661,7 +661,7 @@ public class GameBootstrap : MonoBehaviour
     {
         DrawRect(new Rect(Screen.width * 0.5f - 2f, 0, 4f, Screen.height), Prims.Hex("#ffb000"));
         float s = m_Scale;
-        GUI.Label(new Rect(12 * s, 8 * s, 400 * s, 24 * s), "ロボット内部　<color=#93a6ae>Tab：全体図</color>", m_Small);
+        GUI.Label(new Rect(12 * s, 8 * s, 400 * s, 24 * s), "ロボット内部　<color=#c4d2d8>Tab：全体図</color>", m_Small);
     }
 
     void DrawInteriorLabels()
@@ -733,7 +733,7 @@ public class GameBootstrap : MonoBehaviour
         float pad = 8f * s;
         var frame = new Rect(Screen.width * 0.5f - w - pad * 2f - 12f * s, 12f * s, w + pad * 2f, h + pad * 2f + 18f * s);
         DrawRect(frame, new Color(0.04f, 0.06f, 0.07f, 0.85f));
-        GUI.Label(new Rect(frame.x + pad, frame.y + 2f * s, frame.width, 18f * s), "<color=#93a6ae>内部マップ</color>", m_Small);
+        GUI.Label(new Rect(frame.x + pad, frame.y + 2f * s, frame.width, 18f * s), "<color=#c4d2d8>内部マップ</color>", m_Small);
         float ox = frame.x + pad, oy = frame.y + pad + 18f * s;
 
         // 地図上の点（メートル）→ 画面上の位置。z が上向きなので y は反転する
@@ -830,18 +830,23 @@ public class GameBootstrap : MonoBehaviour
         if (rs == null || rs.TaskBroken.Count != Tasks.Count) return;
         int n = rs.TasksBroken;
         float s = m_Scale;
-        float x = 12 * s, y = 32 * s, w = Mathf.Min(300 * s, Screen.width * 0.5f * 0.5f);
-        float lineH = 36 * s;
-        float h = 26 * s + Mathf.Max(1, n) * lineH;
-        DrawRect(new Rect(x - 6 * s, y - 4 * s, w + 12 * s, h + 8 * s), new Color(0.04f, 0.06f, 0.07f, 0.82f));
-        GUI.Label(new Rect(x, y, w, 22 * s), n > 0 ? $"<color=#ff8a6a><b>故障中の装置 {n}</b></color>" : "<color=#7dff6a><b>すべての装置が正常</b></color>", m_Small);
-        float yy = y + 26 * s;
+        float x = 12 * s, y = 32 * s, w = Mathf.Min(330 * s, Screen.width * 0.5f * 0.55f);
+        float lineH = 44 * s;
+        float h = 28 * s + Mathf.Max(1, n) * lineH;
+        // 背景を濃くして、装置の名前は白、効果は明るいオレンジではっきり読めるように
+        DrawRect(new Rect(x - 6 * s, y - 4 * s, w + 12 * s, h + 8 * s), new Color(0.03f, 0.04f, 0.05f, 0.92f));
+        var head = new GUIStyle(m_Label) { fontSize = Mathf.RoundToInt(15 * s), wordWrap = false };
+        GUI.Label(new Rect(x, y, w, 24 * s), n > 0 ? $"<color=#ff8a6a><b>故障中の装置 {n}</b></color>" : "<color=#7dff6a><b>すべての装置が正常</b></color>", head);
+        var item = new GUIStyle(m_Label) { fontSize = Mathf.RoundToInt(15 * s), wordWrap = false };
+        item.normal.textColor = Color.white;
+        float yy = y + 28 * s;
         for (int i = 0; i < Tasks.Count; i++)
         {
             if (rs.TaskOk(i)) continue;
             var t = Tasks.All[i];
             bool working = TaskUI.CurrentTask == i;
-            GUI.Label(new Rect(x, yy, w, lineH), $"<b>{t.Name}</b>（{t.Room}）{(working ? "<color=#ffb000> 修理中</color>" : "")}\n<color=#93a6ae>{t.Effect}</color>", m_Small);
+            DrawRect(new Rect(x - 2 * s, yy + 2 * s, 4 * s, lineH - 8 * s), Prims.Hex("#ff6a4a"));
+            GUI.Label(new Rect(x + 8 * s, yy, w - 8 * s, lineH), $"<b>{t.Name}</b>（{t.Room}）{(working ? "<color=#ffb000> 修理中</color>" : "")}\n<size={Mathf.RoundToInt(14 * s)}><color=#ffc59e>{t.Effect}</color></size>", item);
             yy += lineH;
         }
     }
@@ -906,7 +911,7 @@ public class GameBootstrap : MonoBehaviour
             var to = rs.BossPos.Value - rs.Pos.Value;
             float rel = Mathf.DeltaAngle(rs.Yaw.Value * Mathf.Rad2Deg, Mathf.Atan2(to.x, to.y) * Mathf.Rad2Deg);
             string dir = Mathf.Abs(rel) < 20f ? "正面" : rel > 0 ? (rel < 100f ? "右前" : "右後ろ") : (rel > -100f ? "左前" : "左後ろ");
-            GUI.Label(new Rect(x, y + 106 * s, w, 24 * s), $"<color=#93a6ae>敵：{dir} {Mathf.RoundToInt(to.magnitude)}m</color>", m_Small);
+            GUI.Label(new Rect(x, y + 106 * s, w, 24 * s), $"<color=#c4d2d8>敵：{dir} {Mathf.RoundToInt(to.magnitude)}m</color>", m_Small);
         }
 
         // 巨大な敵の体力：右半分（外の画面）で、敵の頭のすぐ上に出す。画面の外にいるときは右半分の上の端に出す
@@ -986,7 +991,7 @@ public class GameBootstrap : MonoBehaviour
         else if (me.InDuct.Value)
         {
             where = "ダクトの中";
-            hint = "<color=#93a6ae>出口まで移動中…</color>";
+            hint = "<color=#c4d2d8>出口まで移動中…</color>";
         }
         else if (me.NearDuct >= 0)
         {
@@ -998,7 +1003,7 @@ public class GameBootstrap : MonoBehaviour
         {
             var t = Tasks.All[me.NearTask];
             where = t.Name;
-            hint = rs.TaskOk(me.NearTask) ? "<color=#93a6ae>正常に動いている</color>"
+            hint = rs.TaskOk(me.NearTask) ? "<color=#c4d2d8>正常に動いている</color>"
                  : $"<color=#ff8a6a>故障中（{t.Effect}）</color>　E で修理する";
         }
         else if (rs.GameState.Value == RobotState.Lobby)
@@ -1013,12 +1018,14 @@ public class GameBootstrap : MonoBehaviour
                 hint = $"<color={EnergyCells.Hex(me.Carry.Value)}>{EnergyCells.Name(me.Carry.Value)}のセル</color>を持っている。胸の真ん中の動力炉（光っている所）へ運ぼう → {EnergyCells.Effect(me.Carry.Value)}";
             else hint = rs.TasksBroken > 0 ? "A/D で歩く・はしごは W/S。故障した装置（赤い ！）を直そう" : "A/D で歩く・はしごは W/S。光っている席に近づこう";
         }
-        float w = Mathf.Min(Screen.width * 0.5f - 24 * s, 520 * s), h = 76 * s;
+        float w = Mathf.Min(Screen.width * 0.5f - 24 * s, 540 * s), h = 84 * s;
         var r = new Rect(12 * s, Screen.height - h - 12 * s, w, h);
-        DrawRect(r, new Color(0.06f, 0.08f, 0.1f, 0.88f));
+        DrawRect(r, new Color(0.03f, 0.04f, 0.05f, 0.93f));
         DrawRect(new Rect(r.x, r.y, 6 * s, r.height), me.Color);
         GUI.Label(new Rect(r.x + 16 * s, r.y + 6 * s, r.width - 24 * s, 26 * s), $"<b>{me.Label}　{where}</b>", m_Label);
-        GUI.Label(new Rect(r.x + 16 * s, r.y + 32 * s, r.width - 24 * s, 44 * s), hint, m_Small);
+        var hintStyle = new GUIStyle(m_Label) { fontSize = Mathf.RoundToInt(15 * s) };
+        hintStyle.normal.textColor = Color.white;
+        GUI.Label(new Rect(r.x + 16 * s, r.y + 33 * s, r.width - 24 * s, 50 * s), hint, hintStyle);
     }
 
     void DrawEnd()
