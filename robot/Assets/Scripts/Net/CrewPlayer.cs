@@ -40,7 +40,6 @@ public class CrewPlayer : NetworkBehaviour
     /// <summary>最後に席から投げ出された時刻（本人の画面の案内に使う）</summary>
     public float EjectedAt { get; private set; } = -10f;
     int m_SeenEject = -1;
-    float m_EjectVel;   // 投げ出されたときの横の勢い（m/秒）
 
     public Vector2 DisplayPos { get; private set; }
     /// <summary>本人の近くにある席（なければ -1）。HUD の案内表示に使う。</summary>
@@ -235,16 +234,6 @@ public class CrewPlayer : NetworkBehaviour
             return p;
         }
 
-        // 投げ出された勢いで横へすべる
-        if (Mathf.Abs(m_EjectVel) > 0.05f)
-        {
-            int cw0 = InteriorMap.CatwalkAt(p.x, p.y, 0.6f);
-            float ex = p.x + m_EjectVel * dt;
-            if (cw0 >= 0) ex = Mathf.Clamp(ex, InteriorMap.Catwalks[cw0].X0 + Radius, InteriorMap.Catwalks[cw0].X1 - Radius);
-            p.x = ex;
-            m_EjectVel = Mathf.MoveTowards(m_EjectVel, 0f, 9f * dt);
-        }
-
         // はしごにつかまる（上なら W、下なら S）
         if (Mathf.Abs(mv.y) > 0.5f && Mathf.Abs(mv.y) >= Mathf.Abs(mv.x))
         {
@@ -315,18 +304,14 @@ public class CrewPlayer : NetworkBehaviour
 
         var robot = RobotState.Instance;
         bool playing = robot != null && robot.GameState.Value == RobotState.Playing;
-        // 攻撃を受けて席から投げ出された：跳ね上がって横へ転がる
+        // 攻撃を受けて席から投げ出された：その場で席から降ろされるだけ（動かない）
         if (m_SeenEject < 0) m_SeenEject = Ejected.Value;
         if (Ejected.Value != m_SeenEject)
         {
             m_SeenEject = Ejected.Value;
             EjectedAt = Time.time;
             m_Ladder = -1;
-            m_EjectVel = (Random.value < 0.5f ? -1f : 1f) * 5f;
-            var hp = Pos.Value;
-            hp.y += 0.05f;
-            Pos.Value = hp;
-            m_FallSpeed = -7f;   // 上へ跳ね上がる
+            m_FallSpeed = 0f;
             if (TaskUI.IsOpen) TaskUI.Instance.Close();
         }
         int st = Station.Value;
