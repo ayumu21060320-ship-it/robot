@@ -138,7 +138,7 @@ public class GameBootstrap : MonoBehaviour
             m_InteriorCam.enabled = !full;
             m_ExteriorCam.rect = full ? new Rect(0f, 0f, 1f, 1f) : new Rect(0.5f, 0f, 0.5f, 1f);
         }
-        m_ExteriorCam.fieldOfView = piloting || gunCam ? 70f : 55f;
+        m_ExteriorCam.fieldOfView = (piloting || gunCam ? 70f : 55f) - RobotVisual.FovKick;   // 大きな当たりで一瞬ズーム
         if (gunCam)
         {
             float yawDeg = (rsP.Yaw.Value + rsP.AimHead.Value) * Mathf.Rad2Deg;
@@ -420,6 +420,7 @@ public class GameBootstrap : MonoBehaviour
         if (m_Piloting || m_GunCam)
         {
             // 操縦の照準は StationUI が出す。ここでは敵の大技などの警告だけ
+            DrawImpactFlash();
             DrawPopups();
             DrawStatus();
             DrawBossWarnings(true);
@@ -429,6 +430,7 @@ public class GameBootstrap : MonoBehaviour
         }
         if (m_Spectating)
         {
+            DrawImpactFlash();
             DrawPopups();
             DrawStatus();
             DrawBossWarnings(true);
@@ -456,6 +458,7 @@ public class GameBootstrap : MonoBehaviour
         DrawBuffBanner();
         if (!lobby) { DrawBossWarnings(false); DrawWaveBanner(); DrawPopups(); }
         if (RobotVisual.HitFlash > 0f) DrawRect(new Rect(Screen.width * 0.5f, 0, Screen.width * 0.5f, Screen.height), new Color(1f, 0.2f, 0.1f, RobotVisual.HitFlash * 0.25f));
+        DrawImpactFlash();
     }
 
     static void DrawRect(Rect r, Color c)
@@ -600,6 +603,14 @@ public class GameBootstrap : MonoBehaviour
             networkManager.IsServer ? "全員そろったら「試合開始」。みんなロボットの中心へ転送される" : "部屋番号を友だちに教えて、いっしょに乗り込もう", hint);
 
         if (GUI.Button(new Rect(Screen.width - 130 * s, 10 * s, 116 * s, 30 * s), "部屋を出る", m_Button)) Leave();
+    }
+
+    /// <summary>大きな当たり（会心・キック・ロケットパンチ・大技など）で、外の画面を一瞬白く光らせる</summary>
+    void DrawImpactFlash()
+    {
+        if (RobotVisual.ImpactFlash <= 0f) return;
+        float x0 = m_FullExterior ? 0f : Screen.width * 0.5f;
+        DrawRect(new Rect(x0, 0, Screen.width - x0, Screen.height), new Color(1f, 0.97f, 0.9f, RobotVisual.ImpactFlash * 0.55f));
     }
 
     /// <summary>転送された直後に左半分を白く光らせる</summary>

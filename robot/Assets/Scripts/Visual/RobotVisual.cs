@@ -72,7 +72,7 @@ public class RobotVisual : MonoBehaviour
     Vector2 m_BossPos;
     float m_BossYaw, m_BossPhase, m_BossT = -1f, m_BossLastHp, m_BossFlash;
     int m_BossLastId, m_BossKind;
-    float m_BossCharge, m_BossStunAmt, m_StunStarT;
+    float m_BossCharge, m_BossStunAmt, m_StunStarT, m_DeathBoomT, m_SmokeT;
     /// <summary>敵が今の攻撃を始めてからの時間（攻撃していなければ -1）。HUD の残り時間に使う</summary>
     public float BossActionTime => m_BossT;
     readonly List<Fx> m_Fx = new List<Fx>();
@@ -85,6 +85,16 @@ public class RobotVisual : MonoBehaviour
         public float Life;
         public bool Gravity;
         public bool IsShot;
+        // 派手な演出用
+        public float MaxLife;
+        public Vector3 BaseScale;
+        public Vector3 Spin;        // 回転（度/秒）
+        public float Drag;          // 空気の抵抗（速さが落ちる早さ）
+        public float Grow;          // だんだん大きくなる（煙・土ぼこり）
+        public bool Stretch;        // 進む向きに細長く向ける（火花の筋）
+        public bool ShrinkOut;      // 終わりぎわに小さくなって消える
+        public bool Pulse;          // ぱっと大きくなって、すぐ縮む（閃光）
+        public bool Expand;         // 0 から BaseScale まで広がる（衝撃波の輪）
     }
 
 
@@ -313,6 +323,8 @@ public class RobotVisual : MonoBehaviour
             {
                 m_StepSign[i] = sign;
                 if (sign > 0) Shake = Mathf.Max(Shake, 0.55f); // 一歩ごとにズシンと揺れる
+                var fp = m_Foot[i].position;
+                Dust(new Vector3(fp.x, 0.4f, fp.z), 3, 2.5f);      // 足元の土ぼこり
             }
         }
         float walk = Mathf.Clamp01(Mathf.Abs(s.MoveSpeed.Value) / (RobotState.WalkSpeedMax * 0.7f));
@@ -481,6 +493,18 @@ public class RobotVisual : MonoBehaviour
         m_Head.localRotation = Quaternion.Euler(-9f * m_Recoil - 6f * h + Mathf.Sin(stride * 2f) * 1.5f * walk, s.AimHead.Value * Mathf.Rad2Deg - twist * 0.6f, 0);
         m_Sight.SetActive(s.Occupant.Count > Stations.Head && s.Occupant[Stations.Head] != 0);
 
+        // 装甲が少ないとき：肩から黒い煙が上がる
+        if (s.Hull.Value < 35f && s.GameState.Value == RobotState.Playing)
+        {
+            m_SmokeT -= dt;
+            if (m_SmokeT <= 0f)
+            {
+                m_SmokeT = s.Hull.Value < 15f ? 0.08f : 0.18f;
+                var sh = m_Arm[Random.value < 0.5f ? 0 : 1].position + Vector3.up * 2f;
+                Dust(sh, 1, 1.5f, Prims.Hex("#2a2a2c"));
+                if (s.Hull.Value < 15f && Random.value < 0.3f) Trail(sh, Prims.Hex("#ff7a2a"), 1.2f);
+            }
+        }
         UpdateSpecial(dt);
         UpdateBuffs(dt);
         UpdateRocketVisuals(dt);
@@ -597,7 +621,31 @@ public class RobotVisual : MonoBehaviour
             m_BossHead.localRotation = Quaternion.Euler(-20f * (1f - fall) + 30f * fall, 0, 0);
             m_BossJaw.localRotation = Quaternion.Euler(30f * (1f - fall), 0, 0);
             for (int i = 0; i < 2; i++) m_BossArm[i].localRotation = Quaternion.Euler(Mathf.Lerp(-18f, -70f, fall), 0, (i == 0 ? -1f : 1f) * 20f * fall);
-            if (t >= 2.2f && t - dt < 2.2f) Shake = Mathf.Max(Shake, 1.6f); // 地面に倒れた衝撃
+            if (t >= 2.2f && t - dt < 2.2f)
+            {
+                Shake = Mathf.Max(Shake, 1.6f); // 地面に倒れた衝撃
+                // とどめの大爆発
+                var c0 = new Vector3(m_BossPos.x, 8f, m_BossPos.y);
+                Flash(c0, 40f, Prims.Hex("#ffe9b0"));
+                Shockwave(new Vector3(m_BossPos.x, 0.3f, m_BossPos.y), 70f, Prims.Hex("#fff0c0"), 1.0f);
+                Streaks(c0, 30, Prims.Hex("#ffb02e"), 60f);
+                Debris(c0, 16, Prims.Hex("#3a2140"));
+                Dust(new Vector3(m_BossPos.x, 0.5f, m_BossPos.y), 20, 20f);
+                ImpactFlash = 0.9f; FovKick = 10f;
+            }
+            else if (t < 2.2f)
+            {
+                // 倒れるあいだ、体のあちこちで小さな爆発が続く
+                m_DeathBoomT -= dt;
+                if (m_DeathBoomT <= 0f)
+                {
+                    m_DeathBoomT = 0.18f;
+                    var bp = m_BossBody.position + new Vector3(Random.Range(-8f, 8f), Random.Range(6f, 30f), Random.Range(-8f, 8f));
+                    Flash(bp, Random.Range(5f, 9f), Prims.Hex("#ffd27a"));
+                    Streaks(bp, 5, Prims.Hex("#ff6a3a"), 30f);
+                    Shake = Mathf.Max(Shake, 0.5f);
+                }
+            }
             Prims.SetColor(m_BossCore, Prims.Hex("#ff3d7f") * Mathf.Clamp01(1f - t / 2f));
             Prims.SetColor(m_BossMouth, Color.black);
             if (t > 6f) m_Boss.gameObject.SetActive(false);
@@ -634,7 +682,11 @@ public class RobotVisual : MonoBehaviour
             m_BossKnee[i].localRotation = Quaternion.Euler(Mathf.Max(0f, Mathf.Cos(lp)) * amp * 1.3f, 0, 0);
         }
         if (sp > 0.1f && Mathf.Sign(prev) != Mathf.Sign(Mathf.Sin(ph)) && Vector2.Distance(m_BossPos, m_Pos) < 160f)
+        {
             Shake = Mathf.Max(Shake, 0.45f);
+            var side = new Vector3(Mathf.Cos(m_BossYaw), 0f, -Mathf.Sin(m_BossYaw)) * (Mathf.Sin(ph) > 0f ? 5f : -5f);
+            Dust(new Vector3(m_BossPos.x, 0.4f, m_BossPos.y) + side, 4, 4f);   // 怪獣の足元の土ぼこり
+        }
         float breathe = Mathf.Sin(time * 1.1f);
         float bob = -Mathf.Abs(Mathf.Sin(ph)) * 0.9f * w + breathe * 0.15f;
         float roll = Mathf.Sin(ph) * 3.5f * w;
@@ -677,6 +729,7 @@ public class RobotVisual : MonoBehaviour
                     }
                     else if (t < wu + 0.35f)
                     {
+                        if (t - dt < wu) ClawTrails();   // 爪を振り下ろした瞬間に光の跡
                         float e = (t - wu) / 0.35f;
                         armR = Mathf.Lerp(-150f, 20f, e); foreR = Mathf.Lerp(-30f, 10f, e);
                         armL = Mathf.Lerp(7f, -30f, e);
@@ -736,7 +789,14 @@ public class RobotVisual : MonoBehaviour
                         armR = armL = Mathf.Lerp(10f, -18f, e); m_BossCharge = 0f;
                     }
                     else { m_BossT = -1f; m_BossCharge = 0f; }
-                    if (t >= ct && t - dt < ct) SpawnLineBeam(m_BossJaw.position, new Vector3(s.BossTarget.Value.x, 0f, s.BossTarget.Value.y), 6f, Prims.Hex("#ff4fa0"));
+                    if (t >= ct && t - dt < ct)
+                    {
+                        var tg = new Vector3(s.BossTarget.Value.x, 0f, s.BossTarget.Value.y);
+                        SpawnLineBeam(m_BossJaw.position, tg, 6f, Prims.Hex("#ff4fa0"));
+                        LightPillar(tg, RobotState.MegaRadius * 0.7f, Prims.Hex("#ff6ab0"));
+                        Shockwave(tg + Vector3.up * 0.3f, RobotState.MegaRadius * 1.6f, Prims.Hex("#ffd0ea"), 0.9f);
+                        Dust(tg, 14, RobotState.MegaRadius);
+                    }
                     break;
                 }
                 case RobotState.BossStomp:
@@ -882,7 +942,26 @@ public class RobotVisual : MonoBehaviour
 
     public void Boom(Vector3 at, float size, Color color)
     {
-        int n = Mathf.RoundToInt(10 * size);
+        // 大きな当たりほど派手に：閃光・火花の筋・衝撃波の輪・破片・土ぼこり・画面の白い光
+        if (size >= 1.3f)
+        {
+            Flash(at, 2.2f * size, Color.Lerp(color, Color.white, 0.6f));
+            Streaks(at, Mathf.RoundToInt(5 * size), color, 26f * Mathf.Sqrt(size));
+        }
+        if (size >= 2f)
+        {
+            Shockwave(at, 5f * size, Color.Lerp(color, Color.white, 0.3f), 0.45f);
+            Debris(at, Mathf.RoundToInt(3 * size), Prims.Hex("#5a5550"));
+            ImpactFlash = Mathf.Max(ImpactFlash, Mathf.Min(0.7f, 0.15f + size * 0.07f));
+            FovKick = Mathf.Max(FovKick, Mathf.Min(8f, size * 1.4f));
+        }
+        if (size >= 3f)
+        {
+            var ground = new Vector3(at.x, 0.3f, at.z);
+            Shockwave(ground, 9f * size, Prims.Hex("#fff0c0"), 0.7f);
+            Dust(ground, Mathf.RoundToInt(3 * size), 4f * size);
+        }
+        int n = Mathf.Min(40, Mathf.RoundToInt(10 * size));
         for (int i = 0; i < n; i++)
         {
             var f = Prims.Box(m_FxRoot, at, Vector3.one * Random.Range(0.4f, 1f) * size, i % 3 == 0 ? Prims.Hex("#ffd23f") : color, true, "Spark");
@@ -1170,6 +1249,112 @@ public class RobotVisual : MonoBehaviour
     /// <summary>頭の位置（機関銃モードの一人称カメラに使う）</summary>
     public Vector3 HeadPosition => m_Head != null ? m_Head.position : Root.position;
 
+    // ---------------------------------------------------------------- 派手な演出の部品
+
+    /// <summary>大きな当たりで外の画面を白く光らせる強さ（GameBootstrap が描く）</summary>
+    public static float ImpactFlash;
+    /// <summary>大きな当たりで、外のカメラが一瞬ズームする量（度）</summary>
+    public static float FovKick;
+    static Mesh s_RingMesh;
+
+    Fx AddFx(GameObject g, Vector3 v, float life)
+    {
+        var f = new Fx { T = g.transform, V = v, Life = life, MaxLife = life, BaseScale = g.transform.localScale };
+        m_Fx.Add(f);
+        return f;
+    }
+
+    /// <summary>ぱっと光る玉（閃光）</summary>
+    public void Flash(Vector3 at, float size, Color c)
+    {
+        var g = Prims.Shape(PrimitiveType.Sphere, m_FxRoot, at, Vector3.one * size, c, true, "閃光");
+        AddFx(g, Vector3.zero, 0.22f).Pulse = true;
+    }
+
+    /// <summary>四方へ飛ぶ細長い火花の筋</summary>
+    public void Streaks(Vector3 at, int n, Color c, float speed)
+    {
+        for (int i = 0; i < n; i++)
+        {
+            var g = Prims.Box(m_FxRoot, at, new Vector3(0.25f, 0.25f, Random.Range(1.6f, 3.2f)), i % 2 == 0 ? Color.white : c, true, "火花の筋");
+            var v = Random.onUnitSphere * speed * Random.Range(0.6f, 1.1f);
+            v.y = Mathf.Abs(v.y) * 0.7f + 2f;
+            var f = AddFx(g, v, Random.Range(0.3f, 0.55f));
+            f.Stretch = true; f.Drag = 3f; f.ShrinkOut = true;
+        }
+    }
+
+    /// <summary>広がる衝撃波の輪</summary>
+    public void Shockwave(Vector3 at, float radius, Color c, float life)
+    {
+        if (s_RingMesh == null) s_RingMesh = SectorMesh(0.86f, 360f, 40, false);
+        var t = MeshObject(m_FxRoot, s_RingMesh, c, "衝撃波", out _);
+        t.position = at;
+        t.localScale = new Vector3(radius, 1f, radius);
+        var f = AddFx(t.gameObject, Vector3.zero, life);
+        f.Expand = true; f.ShrinkOut = true;
+    }
+
+    /// <summary>くるくる回りながら飛び散る破片（光らない）</summary>
+    public void Debris(Vector3 at, int n, Color c)
+    {
+        for (int i = 0; i < n; i++)
+        {
+            var g = Prims.Box(m_FxRoot, at, Vector3.one * Random.Range(0.6f, 1.6f), c, false, "破片");
+            var v = Random.insideUnitSphere * 16f;
+            v.y = Mathf.Abs(v.y) + 10f;
+            var f = AddFx(g, v, Random.Range(1.4f, 2.2f));
+            f.Gravity = true; f.ShrinkOut = true;
+            f.Spin = Random.insideUnitSphere * 540f;
+        }
+    }
+
+    /// <summary>もくもく広がる土ぼこり・煙</summary>
+    public void Dust(Vector3 at, int n, float spread, Color? color = null)
+    {
+        var c = color ?? Prims.Hex("#8f877d");
+        for (int i = 0; i < n; i++)
+        {
+            var off = Random.insideUnitCircle * spread;
+            var g = Prims.Box(m_FxRoot, at + new Vector3(off.x, Random.Range(0f, 1.5f), off.y), Vector3.one * Random.Range(1.4f, 2.6f), c, false, "土ぼこり");
+            var v = new Vector3(off.x, 0f, off.y).normalized * Random.Range(2f, 6f) + Vector3.up * Random.Range(1.5f, 4f);
+            var f = AddFx(g, v, Random.Range(0.9f, 1.5f));
+            f.Drag = 1.5f; f.Grow = 1.4f; f.ShrinkOut = true;
+            f.Spin = Random.insideUnitSphere * 60f;
+        }
+    }
+
+    /// <summary>怪獣の爪の跡：敵の正面に3本の光の弧が走る</summary>
+    void ClawTrails()
+    {
+        var fwd = new Vector3(Mathf.Sin(m_BossYaw), 0f, Mathf.Cos(m_BossYaw));
+        var right = new Vector3(fwd.z, 0f, -fwd.x);
+        var center = new Vector3(m_BossPos.x, 0f, m_BossPos.y);
+        for (int c = -1; c <= 1; c++)
+        {
+            float r = 24f + c * 4f;
+            for (int i = 0; i <= 14; i++)
+            {
+                float a = Mathf.Lerp(55f, -55f, i / 14f) * Mathf.Deg2Rad;
+                var pt = center + (fwd * Mathf.Cos(a) + right * Mathf.Sin(a)) * r + Vector3.up * (10f - i * 0.5f);
+                var g = Prims.Box(m_FxRoot, pt, new Vector3(1.0f, 1.0f, 3.5f), i % 3 == 0 ? Color.white : Prims.Hex("#ff4fa0"), true, "爪の跡");
+                g.transform.rotation = Quaternion.LookRotation(right * Mathf.Cos(a) - fwd * Mathf.Sin(a));
+                var f = AddFx(g, Vector3.zero, 0.2f + i * 0.02f);
+                f.ShrinkOut = true;
+            }
+        }
+    }
+
+    /// <summary>大技の着弾：空まで届く光の柱</summary>
+    void LightPillar(Vector3 at, float radius, Color c)
+    {
+        var g = Prims.Shape(PrimitiveType.Cylinder, m_FxRoot, at + Vector3.up * 40f, new Vector3(radius, 40f, radius), c, true, "光の柱");
+        var f = AddFx(g, Vector3.zero, 0.9f);
+        f.ShrinkOut = true;
+        var core = Prims.Shape(PrimitiveType.Cylinder, m_FxRoot, at + Vector3.up * 40f, new Vector3(radius * 0.4f, 40f, radius * 0.4f), Color.white, true, "光の柱の芯");
+        AddFx(core, Vector3.zero, 0.7f).ShrinkOut = true;
+    }
+
     public void Hit()
     {
         // ガードしていると、のけぞりが小さい
@@ -1314,14 +1499,31 @@ public class RobotVisual : MonoBehaviour
     void UpdateFx(float dt)
     {
         HitFlash = Mathf.Max(0f, HitFlash - dt * 3f);
+        ImpactFlash = Mathf.Max(0f, ImpactFlash - dt * 4f);
+        FovKick = Mathf.Max(0f, FovKick - dt * 25f);
         for (int i = m_Fx.Count - 1; i >= 0; i--)
         {
             var f = m_Fx[i];
             f.Life -= dt;
             if (f.Gravity) f.V.y -= 26f * dt;
+            if (f.Drag > 0f) f.V *= Mathf.Exp(-f.Drag * dt);
             var p = f.T.position + f.V * dt;
             if (p.y < 0.2f) { p.y = 0.2f; f.V *= 0.5f; f.V.y = -f.V.y * 0.3f; }
             f.T.position = p;
+            if (f.MaxLife > 0f)
+            {
+                float age = Mathf.Clamp01(1f - f.Life / f.MaxLife);
+                float k = 1f;
+                if (f.Pulse) k = Mathf.Sin(Mathf.Min(1f, age * 1.3f) * Mathf.PI);
+                else if (f.Expand) k = 1f - (1f - age) * (1f - age);
+                else if (f.Grow > 0f) k = 1f + f.Grow * age;
+                if (f.ShrinkOut && age > 0.6f) k *= 1f - (age - 0.6f) / 0.4f;
+                var sc = f.BaseScale * Mathf.Max(0.001f, k);
+                if (f.Expand) sc.y = f.BaseScale.y;
+                f.T.localScale = sc;
+                if (f.Spin != Vector3.zero) f.T.Rotate(f.Spin * dt, Space.Self);
+                if (f.Stretch && f.V.sqrMagnitude > 0.01f) f.T.rotation = Quaternion.LookRotation(f.V.normalized);
+            }
             if (f.IsShot && Vector2.Distance(new Vector2(p.x, p.z), m_Pos) < ExteriorWorld.RobotRadius && p.y < 19f * RobotState.TitanScale) f.Life = 0f;
             if (f.Life <= 0f)
             {
