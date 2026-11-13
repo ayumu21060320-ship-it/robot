@@ -258,6 +258,7 @@ public class RobotState : NetworkBehaviour
         if (p == null || GameState.Value != Playing) return;
         if (index < 0 || index >= Stations.Count) return;
         if (Occupant[index] != 0 || FireHp[index] > 0 || p.Station.Value >= 0 || p.Spectating.Value) return;
+        if (m_EjectBlock.TryGetValue(id, out float until) && Time.time < until) return;   // 投げ出された直後
         if ((index == Stations.LeftArm && ArmLost(0)) || (index == Stations.RightArm && ArmLost(1))) return;   // 腕がない
         if (Vector2.Distance(p.Pos.Value, Stations.All[index].Pos) > CrewPlayer.UseRange + 0.6f) return;
         Occupant[index] = (int)id + 1;
@@ -1261,8 +1262,28 @@ public class RobotState : NetworkBehaviour
             BoomFxRpc(new Vector3(fp.x, 13f * TitanScale, fp.y), 1.4f, new Color(0.55f, 0.85f, 1f));
         }
         HitFxRpc();
+        // ガードできずに受けたら、操縦席の人は席から投げ出される（片腕でもガードしていれば大丈夫）
+        if (guard < EjectGuard) EjectSeated();
         if (Random.value < 0.08f * (1f - guard)) StartFire();
         if (Random.value < 0.04f * (1f - guard)) BreakRandomTask();
+    }
+
+    const float EjectGuard = 0.01f;     // ガードがまったくないと投げ出される（片腕でもガードしていれば投げ出されない）
+    const float EjectBlockTime = 1.0f;  // 投げ出されてから座り直せるまで（秒）
+    readonly Dictionary<ulong, float> m_EjectBlock = new Dictionary<ulong, float>();
+
+    /// <summary>操縦席に座っている人を全員、席から投げ出す（ロケットパンチを操縦中の人はそのまま）</summary>
+    void EjectSeated()
+    {
+        foreach (var p in CrewPlayer.All)
+        {
+            int st = p.Station.Value;
+            if (st < 0) continue;
+            if ((st == Stations.LeftArm && RocketState(0) == RocketFlying) || (st == Stations.RightArm && RocketState(1) == RocketFlying)) continue;
+            Unseat(p);
+            p.Ejected.Value++;
+            m_EjectBlock[p.OwnerClientId] = Time.time + EjectBlockTime;
+        }
     }
 
     void StartFire()

@@ -35,6 +35,12 @@ public class CrewPlayer : NetworkBehaviour
     public NetworkVariable<int> Carry = new NetworkVariable<int>(-1);
     /// <summary>ロケットパンチで腕と一緒に飛んでいった：この試合は観戦だけ（次の試合で戻る）。ホストが書く</summary>
     public NetworkVariable<bool> Spectating = new NetworkVariable<bool>(false);
+    /// <summary>攻撃を受けて席から投げ出されるたびに +1（ホストが書く）</summary>
+    public NetworkVariable<int> Ejected = new NetworkVariable<int>(0);
+    /// <summary>最後に席から投げ出された時刻（本人の画面の案内に使う）</summary>
+    public float EjectedAt { get; private set; } = -10f;
+    int m_SeenEject = -1;
+    float m_EjectVel;   // 投げ出されたときの横の勢い（m/秒）
 
     public Vector2 DisplayPos { get; private set; }
     /// <summary>本人の近くにある席（なければ -1）。HUD の案内表示に使う。</summary>
@@ -229,6 +235,16 @@ public class CrewPlayer : NetworkBehaviour
             return p;
         }
 
+        // 投げ出された勢いで横へすべる
+        if (Mathf.Abs(m_EjectVel) > 0.05f)
+        {
+            int cw0 = InteriorMap.CatwalkAt(p.x, p.y, 0.6f);
+            float ex = p.x + m_EjectVel * dt;
+            if (cw0 >= 0) ex = Mathf.Clamp(ex, InteriorMap.Catwalks[cw0].X0 + Radius, InteriorMap.Catwalks[cw0].X1 - Radius);
+            p.x = ex;
+            m_EjectVel = Mathf.MoveTowards(m_EjectVel, 0f, 9f * dt);
+        }
+
         // はしごにつかまる（上なら W、下なら S）
         if (Mathf.Abs(mv.y) > 0.5f && Mathf.Abs(mv.y) >= Mathf.Abs(mv.x))
         {
@@ -299,6 +315,20 @@ public class CrewPlayer : NetworkBehaviour
 
         var robot = RobotState.Instance;
         bool playing = robot != null && robot.GameState.Value == RobotState.Playing;
+        // 攻撃を受けて席から投げ出された：跳ね上がって横へ転がる
+        if (m_SeenEject < 0) m_SeenEject = Ejected.Value;
+        if (Ejected.Value != m_SeenEject)
+        {
+            m_SeenEject = Ejected.Value;
+            EjectedAt = Time.time;
+            m_Ladder = -1;
+            m_EjectVel = (Random.value < 0.5f ? -1f : 1f) * 5f;
+            var hp = Pos.Value;
+            hp.y += 0.05f;
+            Pos.Value = hp;
+            m_FallSpeed = -7f;   // 上へ跳ね上がる
+            if (TaskUI.IsOpen) TaskUI.Instance.Close();
+        }
         int st = Station.Value;
 
         // 待機室 ⇔ ロボットの中：試合の状態が変わったら転送する（途中参加でも正しい側へ）

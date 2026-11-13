@@ -723,6 +723,19 @@ public class GameBootstrap : MonoBehaviour
 
     void DrawTeleportFlash()
     {
+        // 席から投げ出されたとき：左半分を赤く光らせる
+        var me = CrewPlayer.Local;
+        if (me != null)
+        {
+            float et = Time.time - me.EjectedAt;
+            if (et >= 0f && et < 0.6f)
+            {
+                float ea = 1f - et / 0.6f;
+                DrawRect(new Rect(0, 0, Screen.width * 0.5f, Screen.height), new Color(1f, 0.15f, 0.1f, ea * 0.45f));
+                m_Big.normal.textColor = new Color(1f, 0.9f, 0.85f, ea);
+                GUI.Label(new Rect(0, Screen.height * 0.4f, Screen.width * 0.5f, 60 * m_Scale), "席から投げ出された！", m_Big);
+            }
+        }
         float t = Time.time - CrewPlayer.TeleportTime;
         if (t < 0f || t > 0.9f) return;
         float a = 1f - t / 0.9f;
@@ -1025,7 +1038,7 @@ public class GameBootstrap : MonoBehaviour
             if (rs.BossAction.Value == RobotState.BossSwipe)
             {
                 var warn = new GUIStyle(m_Label) { alignment = TextAnchor.MiddleCenter };
-                GUI.Label(new Rect(center.x - 200 * s, br.y - 30 * s, 400 * s, 24 * s), "<color=#ff6a4a><b>⚠ 腕を振りかぶっている！ 赤い範囲から出るか両腕でガード</b></color>", warn);
+                GUI.Label(new Rect(center.x - 200 * s, br.y - 30 * s, 400 * s, 24 * s), "<color=#ff6a4a><b>⚠ 腕を振りかぶっている！ 赤い範囲から出るかガード（ガードなしで当たると席から投げ出される）</b></color>", warn);
             }
         }
 
@@ -1041,7 +1054,12 @@ public class GameBootstrap : MonoBehaviour
         float s = m_Scale;
         string where, hint;
         int st = me.Station.Value;
-        if (st >= 0)
+        if (Time.time - me.EjectedAt < 1.8f && st < 0)
+        {
+            where = "<color=#ff6a4a>席から投げ出された！</color>";
+            hint = "ガードできずに攻撃を受けた。急いで席に戻ろう（腕の係がガードしていれば投げ出されない）";
+        }
+        else if (st >= 0)
         {
             var def = Stations.All[st];
             where = $"{def.Name} を操縦中";
