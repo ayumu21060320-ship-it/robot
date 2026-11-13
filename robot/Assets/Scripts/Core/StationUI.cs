@@ -323,7 +323,7 @@ public class StationUI : MonoBehaviour
         var c = new Vector2(rx + rw * 0.5f, a.y + 100 * s);
         float r = Mathf.Min(rw * 0.42f, 85 * s);
         UIDraw.Arc(c, r, -110f, 110f, 6 * s, new Color(1, 1, 1, 0.25f));
-        float sp = rs.MoveSpeed.Value / 3.4f;
+        float sp = rs.MoveSpeed.Value / RobotState.WalkSpeedMax;
         UIDraw.Arc(c, r, -110f, Mathf.Lerp(-110f, 110f, Mathf.Clamp01((sp + 0.5f) / 1.5f)), 6 * s, Prims.Hex("#4fd2ff"));
         UIDraw.Line(c, UIDraw.Point(c, r * 0.9f, Mathf.Lerp(-110f, 110f, Mathf.Clamp01((sp + 0.5f) / 1.5f))), 4 * s, Prims.Hex("#ff6a4a"));
         UIDraw.Dot(c, 12 * s, Prims.Hex("#c8d0d6"));

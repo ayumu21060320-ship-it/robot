@@ -292,7 +292,7 @@ public class RobotVisual : MonoBehaviour
                 continue;
             }
             float legSpeed = s.MoveSpeed.Value + (i == 0 ? 1f : -1f) * s.TurnRate.Value * 4f;
-            float lev = legSpeed / 3.4f;
+            float lev = legSpeed / RobotState.WalkSpeedMax;
             m_Phase[i] += legSpeed * dt * 0.42f;
             if (Mathf.Abs(lev) > 0.05f) moving = true;
             float amp = Mathf.Min(1f, Mathf.Abs(lev) * 1.6f) * 26f;
@@ -308,7 +308,7 @@ public class RobotVisual : MonoBehaviour
                 if (sign > 0) Shake = Mathf.Max(Shake, 0.55f); // 一歩ごとにズシンと揺れる
             }
         }
-        float walk = Mathf.Clamp01(Mathf.Abs(s.MoveSpeed.Value) / 2.5f);
+        float walk = Mathf.Clamp01(Mathf.Abs(s.MoveSpeed.Value) / (RobotState.WalkSpeedMax * 0.7f));
         float stride = (m_Phase[0] + m_Phase[1]) * 0.5f;
         float bob = moving ? Mathf.Abs(Mathf.Sin(stride)) * 0.25f : 0f;
         float breathe = Mathf.Sin(Time.time * 1.3f);
@@ -561,7 +561,7 @@ public class RobotVisual : MonoBehaviour
 
         // ---- 歩き：大きな歩幅でゆっくり。体が上下・左右に揺れ、腕は脚と逆に振る
         float sp = s.BossSpeed.Value;
-        m_BossWalkAmt = Mathf.MoveTowards(m_BossWalkAmt, Mathf.Min(1f, sp / 2.3f), dt * 1.5f);
+        m_BossWalkAmt = Mathf.MoveTowards(m_BossWalkAmt, Mathf.Min(1f, sp / RobotState.BossWalkSpeed), dt * 1.5f);
         float w = m_BossWalkAmt;
         float prev = Mathf.Sin(m_BossPhase);
         m_BossPhase += sp * dt * 0.32f;
