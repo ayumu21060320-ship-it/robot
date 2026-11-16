@@ -394,7 +394,7 @@ public class CrewPlayer : NetworkBehaviour
             }
             else if (NearCharger >= 0)
             {
-                if (robot != null && playing && (actPressed || use)) robot.ChargeArmRpc(NearCharger);   // Space 連打で腕を充電
+                if (robot != null && playing && use) TaskUI.Instance.OpenJob(TaskUI.JobArmL + NearCharger);   // 腕の充電のミニゲーム
             }
             else if (NearCell >= 0)
             {
@@ -404,7 +404,12 @@ public class CrewPlayer : NetworkBehaviour
             {
                 bool onFire = robot.FireHp[NearStation] > 0;
                 if (onFire && (actPressed || use)) robot.RepairRpc(NearStation);
-                else if (!onFire && use && playing) robot.RequestStationRpc(NearStation);
+                else if (!onFire && use && playing)
+                {
+                    // 動力炉は座らずに、チャージのミニゲームをする
+                    if (NearStation == Stations.Core) TaskUI.Instance.OpenJob(TaskUI.JobReactor);
+                    else robot.RequestStationRpc(NearStation);
+                }
             }
             else if (robot != null && NearTask >= 0 && playing && !robot.TaskOk(NearTask) && (use || actPressed))
             {
