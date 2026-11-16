@@ -39,6 +39,7 @@ public class GameBootstrap : MonoBehaviour
     void Awake()
     {
         Application.targetFrameRate = 60;
+        UsePcQuality();
         Prims.Init(litMaterial, unlitMaterial);
         ExteriorWorld.Build(transform);
         m_Interior = InteriorMap.Build(transform);
@@ -51,6 +52,17 @@ public class GameBootstrap : MonoBehaviour
         RenderSettings.fogColor = Prims.Hex("#2b3a42");
         RenderSettings.fogStartDistance = 110f;
         RenderSettings.fogEndDistance = 320f;
+    }
+
+    /// <summary>
+    /// どの環境でも「PC」の画質設定（Assets/Settings/PC_RPAsset）で描く。
+    /// Web 版は何もしないと「Mobile」の設定になり、その組み合わせだと影の処理が失敗して、
+    /// ロボット・敵・地面・ビルなど光の当たる物が描かれないことがあった（光る部品だけ見える）。
+    /// </summary>
+    static void UsePcQuality()
+    {
+        int pc = Array.IndexOf(QualitySettings.names, "PC");
+        if (pc >= 0 && QualitySettings.GetQualityLevel() != pc) QualitySettings.SetQualityLevel(pc, true);
     }
 
     void Start()
