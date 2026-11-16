@@ -9,9 +9,17 @@ using UnityEngine.InputSystem;
 public class TaskUI : MonoBehaviour
 {
     public static TaskUI Instance { get; private set; }
-    public static bool IsOpen => Instance != null && Instance.m_Task >= 0;
+    public static bool IsOpen => Instance != null && (Instance.m_Task >= 0 || Instance.m_Job >= 0);
 
     int m_Task = -1;
+    /// <summary>
+    /// 補給の仕事（壊れた装置の修理ではなく、エネルギーをためる仕事）。-1 = なし
+    /// 0 = 動力炉のチャージ（針のミニゲーム）、1 = 左腕の充電、2 = 右腕の充電（ハンドルを回すミニゲーム）
+    /// </summary>
+    int m_Job = -1;
+    public const int JobReactor = 0, JobArmL = 1, JobArmR = 2;
+    static readonly string[] JobNames = { "動力炉のチャージ", "左腕の充電", "右腕の充電" };
+    static readonly string[] JobRooms = { "胸", "左肩", "右肩" };
     int m_OpenedFrame = -1;
     /// <summary>閉じたフレーム。同じ E キーでまた開いてしまわないように使う。</summary>
     public static int ClosedFrame { get; private set; } = -1;
@@ -44,17 +52,29 @@ public class TaskUI : MonoBehaviour
     float m_GyroX, m_GyroV, m_GyroTime;
 
     // 修理はさっと終わるように簡単め（ロボットの操縦がメイン）
-    const int GaugeHits = 2, ScopeHits = 2, FuseRounds = 1, DebrisCount = 6;
-    const float ValveTurns = 1f, GyroNeed = 2f;
+    const int GaugeHitsRepair = 2, ScopeHits = 2, FuseRounds = 1, DebrisCount = 6;
+    const float ValveTurnsRepair = 1f, GyroNeed = 2f;
+    // 補給の仕事は修理より少しだけ長め
+    int GaugeHits => m_Job >= 0 ? 3 : GaugeHitsRepair;
+    float ValveTurns => m_Job >= 0 ? 1.5f : ValveTurnsRepair;
     const float GaugeZone = 22f, ScopeZone = 26f, GyroZone = 0.34f;   // 当たりの範囲の半分（度／割合）
 
     void Awake() => Instance = this;
 
-    public void Open(int task)
+    /// <summary>補給の仕事のミニゲームを開く（JobReactor・JobArmL・JobArmR）</summary>
+    public void OpenJob(int job)
+    {
+        Open(-1, job);
+    }
+
+    public void Open(int task) => Open(task, -1);
+
+    void Open(int task, int job)
     {
         m_Task = task;
+        m_Job = job;
         m_OpenedFrame = Time.frameCount;
-        m_Kind = Tasks.All[task].Kind;
+        m_Kind = job >= 0 ? (job == JobReactor ? TaskKind.Gauge : TaskKind.Valve) : Tasks.All[task].Kind;
         m_DoneT = -1f;
         m_FailT = 0f;
         m_T = 0f;
@@ -89,8 +109,9 @@ public class TaskUI : MonoBehaviour
 
     public void Close()
     {
-        if (m_Task < 0) return;
+        if (m_Task < 0 && m_Job < 0) return;
         m_Task = -1;
+        m_Job = -1;
         ClosedFrame = Time.frameCount;
     }
 
@@ -114,7 +135,8 @@ public class TaskUI : MonoBehaviour
         if (!IsOpen) return;
         var rs = RobotState.Instance;
         // ゲームが終わった、または誰かが先に直したら閉じる
-        if (rs == null || rs.GameState.Value != RobotState.Playing || (m_DoneT < 0f && rs.TaskOk(m_Task))) { Close(); return; }
+        if (rs == null || rs.GameState.Value != RobotState.Playing || (m_Task >= 0 && m_DoneT < 0f && rs.TaskOk(m_Task))) { Close(); return; }
+        if (m_Job > 0 && rs.ArmLost(m_Job - 1)) { Close(); return; }   // 腕がなくなった
 
         if (Time.frameCount == m_OpenedFrame) return; // 開いたときのキーをミニゲームの操作に数えない
         float dt = Time.deltaTime;
@@ -240,7 +262,9 @@ public class TaskUI : MonoBehaviour
     {
         m_DoneT = 0f;
         var rs = RobotState.Instance;
-        if (rs != null) rs.CompleteTaskRpc(m_Task);
+        if (rs == null) return;
+        if (m_Job >= 0) rs.CompleteJobRpc(m_Job);
+        else rs.CompleteTaskRpc(m_Task);
     }
 
     // ================================================================ 表示
@@ -290,7 +314,8 @@ public class TaskUI : MonoBehaviour
             m_Center = new GUIStyle(m_Text) { alignment = TextAnchor.MiddleCenter, fontStyle = FontStyle.Bold };
         }
 
-        var def = Tasks.All[m_Task];
+        string title = m_Job >= 0 ? JobNames[m_Job] : Tasks.All[m_Task].Name;
+        string room = m_Job >= 0 ? JobRooms[m_Job] : Tasks.All[m_Task].Room;
         float half = Screen.width * 0.5f;
         float w = Mathf.Min(half - 40f * s, 520f * s), h = w * 0.82f + 90f * s;
         var panel = new Rect((half - w) * 0.5f, (Screen.height - h) * 0.5f, w, h);
@@ -298,7 +323,7 @@ public class TaskUI : MonoBehaviour
         Fill(panel, new Color(0.11f, 0.13f, 0.15f, 0.97f));
         Frame(panel, m_FailT > 0f ? new Color(0.9f, 0.25f, 0.2f) : m_DoneT >= 0f ? new Color(0.4f, 0.9f, 0.4f) : Prims.Hex("#ffb000"), 4f * s);
 
-        GUI.Label(new Rect(panel.x + 18 * s, panel.y + 12 * s, w - 36 * s, 30 * s), $"{def.Name}<size={Mathf.RoundToInt(14 * s)}><color=#93a6ae>　{def.Room}</color></size>", m_Title);
+        GUI.Label(new Rect(panel.x + 18 * s, panel.y + 12 * s, w - 36 * s, 30 * s), $"{title}<size={Mathf.RoundToInt(14 * s)}><color=#c4d2d8>　{room}</color></size>", m_Title);
         GUI.Label(new Rect(panel.x + 18 * s, panel.y + 44 * s, w - 36 * s, 40 * s), Instruction() + "　<color=#93a6ae>E：閉じる</color>", m_Text);
         var area = new Rect(panel.x + 18 * s, panel.y + 86 * s, w - 36 * s, h - 104 * s);
         Fill(area, new Color(0.07f, 0.08f, 0.09f));
@@ -319,15 +344,19 @@ public class TaskUI : MonoBehaviour
             Fill(area, new Color(0.1f, 0.4f, 0.15f, 0.55f));
             var big = new GUIStyle(m_Center) { fontSize = Mathf.RoundToInt(30 * s) };
             big.normal.textColor = Color.white;
-            GUI.Label(area, "修理完了！", big);
+            GUI.Label(area, m_Job == JobReactor ? "チャージ完了！ 動力 +35" : m_Job > 0 ? "充電完了！ 腕のエネルギー +50" : "修理完了！", big);
         }
     }
 
     string Instruction() => m_Kind switch
     {
-        TaskKind.Valve => $"A と D を交互に押してバルブを回す（{Mathf.Min(ValveTurns, m_ValveAngle / 360f):0.0} / {ValveTurns:0} 回転）",
+        TaskKind.Valve => m_Job >= 0
+            ? $"A と D を交互に押して発電ハンドルを回す（{Mathf.Min(ValveTurns, m_ValveAngle / 360f):0.0} / {ValveTurns:0.0} 回転）→ 腕のエネルギー +50"
+            : $"A と D を交互に押してバルブを回す（{Mathf.Min(ValveTurns, m_ValveAngle / 360f):0.0} / {ValveTurns:0} 回転）",
         TaskKind.Wires => m_WirePicked < 0 ? "W/S で左の線を選んで Space（クリックでもOK）" : $"<b>{WireNames[m_WireLeft[m_WirePicked]]}</b> の線をつなぐ先を W/S で選んで Space",
-        TaskKind.Gauge => $"針が緑の範囲に入ったら Space（{m_Hits} / {GaugeHits}）",
+        TaskKind.Gauge => m_Job >= 0
+            ? $"針が緑の範囲に入ったら Space（{m_Hits} / {GaugeHits}）→ 動力 +35"
+            : $"針が緑の範囲に入ったら Space（{m_Hits} / {GaugeHits}）",
         TaskKind.Scope => $"回る印が緑の目標に重なったら Space（{m_Hits} / {ScopeHits}）",
         TaskKind.Fuse => $"指定と同じ数字のヒューズを A/D で選んで Space（{m_FuseRound} / {FuseRounds}）",
         TaskKind.Vent => $"Space を連打してダクトのゴミを取る（残り {m_Debris}）",

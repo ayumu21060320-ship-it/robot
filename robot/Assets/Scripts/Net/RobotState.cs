@@ -42,7 +42,7 @@ public class RobotState : NetworkBehaviour
 
     // ---- 腕のエネルギー：パンチとガードで減り、自然には戻らない。肩の充電器で Space 連打して充電する
     public const float ArmEnergyMax = 100f;
-    const float ArmChargePerPress = 7f, GuardEnergyCost = 4f;
+    const float GuardEnergyCost = 4f;
 
     // ---- キック（脚の席。キックのあいだは止まるが、強くて敵が吹っ飛ぶ）
     const float KickDamage = 55f, KickDelay = 0.5f, KickPower = 6f, KickKnock = 45f;
@@ -260,6 +260,7 @@ public class RobotState : NetworkBehaviour
         if (Occupant[index] != 0 || FireHp[index] > 0 || p.Station.Value >= 0 || p.Spectating.Value) return;
         if (m_EjectBlock.TryGetValue(id, out float until) && Time.time < until) return;   // 投げ出された直後
         if ((index == Stations.LeftArm && ArmLost(0)) || (index == Stations.RightArm && ArmLost(1))) return;   // 腕がない
+        if (index == Stations.Core) return;   // 動力炉は座る席ではなく、チャージの仕事（ミニゲーム）
         if (Vector2.Distance(p.Pos.Value, Stations.All[index].Pos) > CrewPlayer.UseRange + 0.6f) return;
         Occupant[index] = (int)id + 1;
         p.Station.Value = index;
@@ -651,14 +652,31 @@ public class RobotState : NetworkBehaviour
         if (k == 0) { PunchKindL.Value = kind; PunchL.Value++; } else { PunchKindR.Value = kind; PunchR.Value++; }
     }
 
-    /// <summary>肩の充電器で Space を1回押した：その腕のエネルギーを少し充電する</summary>
+    // ---- 補給の仕事（ミニゲームをやり終えるとエネルギーがたまる）
+    const float ReactorChargeAmount = 35f, ArmChargeAmount = 50f;
+
+    /// <summary>
+    /// 補給の仕事のミニゲームをやり終えた（TaskUI.JobReactor = 動力炉、JobArmL / JobArmR = 腕の充電器）
+    /// </summary>
     [Rpc(SendTo.Server)]
-    public void ChargeArmRpc(int k, RpcParams rpcParams = default)
+    public void CompleteJobRpc(int job, RpcParams rpcParams = default)
     {
         var p = GetPlayer(rpcParams.Receive.SenderClientId);
-        if (p == null || GameState.Value != Playing || k < 0 || k > 1 || p.Station.Value >= 0) return;
-        if (Vector2.Distance(p.Pos.Value, ArmChargers.Pos[k]) > ArmChargers.UseRange + 0.6f) return;
-        SetArmEnergy(k, ArmEnergy(k) + ArmChargePerPress);
+        if (p == null || GameState.Value != Playing || p.Station.Value >= 0) return;
+        if (job == TaskUI.JobReactor)
+        {
+            if (FireHp[Stations.Core] > 0) return;   // 火事のあいだはチャージできない
+            if (Vector2.Distance(p.Pos.Value, Stations.All[Stations.Core].Pos) > CrewPlayer.UseRange + 1f) return;
+            Power.Value = Mathf.Min(MaxPower, Power.Value + ReactorChargeAmount);
+            Score.Value += 20;
+        }
+        else if (job == TaskUI.JobArmL || job == TaskUI.JobArmR)
+        {
+            int k = job - 1;
+            if (ArmLost(k) || Vector2.Distance(p.Pos.Value, ArmChargers.Pos[k]) > ArmChargers.UseRange + 1f) return;
+            SetArmEnergy(k, ArmEnergy(k) + ArmChargeAmount);
+            Score.Value += 20;
+        }
     }
 
     const float PunchStandoff = 26f;   // 敵が止まる距離（パンチが届く距離より内側）

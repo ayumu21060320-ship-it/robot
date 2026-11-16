@@ -555,12 +555,12 @@ public class GameBootstrap : MonoBehaviour
         // ---- 左上：ルール
         var rules = new GUIStyle(m_Small) { wordWrap = false };
         rules.normal.textColor = new Color(0.86f, 0.9f, 0.92f);
-        var rr = new Rect(12 * s, 34 * s, 270 * s, 150 * s);
+        var rr = new Rect(12 * s, 34 * s, 290 * s, 176 * s);
         DrawRect(rr, new Color(0.04f, 0.06f, 0.07f, 0.7f));
         GUI.Label(new Rect(rr.x + 10 * s, rr.y + 6 * s, rr.width, rr.height),
             "<b>出撃の設定</b>\n" +
             $"最大人数：{MaxPlayers}人\n" +
-            $"操縦席：{Stations.Count}（脚2・腕2・頭部砲・動力炉）\n" +
+            "操縦席：5（脚2・腕2・頭部砲）\n動力炉と腕の充電器：ミニゲームで補給\n" +
             $"連戦：倒すほど次の敵が強くなる\n" +
             "敵の遠距離攻撃：なし\n" +
             "途中参加：できる（ロボットの中に出る）", rules);
@@ -1099,7 +1099,7 @@ public class GameBootstrap : MonoBehaviour
         {
             int k = me.NearCharger;
             where = (k == 0 ? "左" : "右") + "腕の充電器";
-            hint = $"<b>Space 連打で充電</b>　腕のエネルギー {Mathf.FloorToInt(rs.ArmEnergy(k))} / {RobotState.ArmEnergyMax:0}（パンチとガードで減る）";
+            hint = $"<b>E で充電</b>（ミニゲーム・+50）　腕のエネルギー {Mathf.FloorToInt(rs.ArmEnergy(k))} / {RobotState.ArmEnergyMax:0}（パンチとガードで減る）";
         }
         else if (me.NearCell >= 0 && rs.CellAt.Count == EnergyCells.Count && rs.CellAt[me.NearCell] >= 0)
         {
@@ -1114,6 +1114,7 @@ public class GameBootstrap : MonoBehaviour
             bool taken = rs.Occupant.Count == Stations.Count && rs.Occupant[me.NearStation] != 0;
             where = def.Name;
             hint = fire ? $"<color=#ff8a6a>火災！ Space 連打で消火（あと {rs.FireHp[me.NearStation]} 回）</color>"
+                 : me.NearStation == Stations.Core ? $"E で動力をチャージ（ミニゲーム・動力 +35）　いまの動力 {Mathf.CeilToInt(rs.Power.Value)}"
                  : taken ? "ほかの乗組員が操縦中" : "E で席に乗る";
         }
         else if (me.InDuct.Value)
@@ -1144,6 +1145,7 @@ public class GameBootstrap : MonoBehaviour
             where = InteriorMap.AreaName(me.Pos.Value);
             if (me.Carry.Value >= 0)
                 hint = $"<color={EnergyCells.Hex(me.Carry.Value)}>{EnergyCells.Name(me.Carry.Value)}のセル</color>を持っている。胸の真ん中の動力炉（光っている所）へ運ぼう → {EnergyCells.Effect(me.Carry.Value)}";
+            else if (rs.Power.Value < 30f) hint = "<color=#ffd23f><b>動力が少ない！</b></color> 胸の動力炉で E を押してチャージしよう（ミニゲーム）";
             else hint = rs.TasksBroken > 0 ? "A/D で歩く・はしごは W/S。故障した装置（赤い ！）を直そう" : "A/D で歩く・はしごは W/S。光っている席に近づこう";
         }
         float w = Mathf.Min(Screen.width * 0.5f - 24 * s, 520 * s), h = 76 * s;
