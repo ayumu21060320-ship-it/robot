@@ -461,8 +461,8 @@ public class StationUI : MonoBehaviour
         var to = rs.BossPos.Value - rs.Pos.Value;
         float rel = Mathf.DeltaAngle(rs.Yaw.Value * Mathf.Rad2Deg, Mathf.Atan2(to.x, to.y) * Mathf.Rad2Deg);
         float dist = to.magnitude;
-        float reach = 8.4f * RobotState.TitanScale + RobotState.BossRadius + 2f;
-        bool inRange = rs.BossAlive && dist < reach && Mathf.Abs(Mathf.DeltaAngle(rel, aim * Mathf.Rad2Deg)) < 40f;
+        // ホストの当たり判定と同じ計算（ストレートが届くか）
+        bool inRange = rs.PunchReaches(left ? 0 : 1, aim, RobotState.PunchStraight);
         if (rs.BossAlive)
         {
             float shown = Mathf.Clamp(rel, -maxDeg - 15f, maxDeg + 15f);

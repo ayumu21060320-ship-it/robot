@@ -29,7 +29,7 @@ public class RobotState : NetworkBehaviour
     // ---- パンチの種類（腕の席で、操作ごとに違うパンチが出る）
     public const int PunchJab = 0, PunchStraight = 1, PunchHook = 2, PunchUpper = 3;
     public static readonly string[] PunchNames = { "ジャブ", "ストレート", "フック", "アッパー" };
-    public static readonly float[] PunchDamage = { 10f, 25f, 18f, 40f };
+    public static readonly float[] PunchDamage = { 14f, 32f, 24f, 50f };   // ジャブ・ストレート・フック・アッパー
     public static readonly float[] PunchDelay = { 0.22f, 0.6f, 0.45f, 0.8f };   // 出してから当たるまで（見た目と合わせる）
     public static readonly float[] PunchTimes = { 0.55f, 1.4f, 1.1f, 1.6f };    // 腕を振る全体の時間（見た目）
     public static readonly float[] PunchCd = { 0.55f, 2.0f, 1.4f, 3.0f };        // 次のパンチまで
@@ -45,18 +45,18 @@ public class RobotState : NetworkBehaviour
     const float ArmChargePerPress = 7f, GuardEnergyCost = 4f;
 
     // ---- キック（脚の席。キックのあいだは止まるが、強くて敵が吹っ飛ぶ）
-    const float KickDamage = 40f, KickDelay = 0.5f, KickPower = 6f, KickKnock = 45f;
+    const float KickDamage = 55f, KickDelay = 0.5f, KickPower = 6f, KickKnock = 45f;
     public const float KickCooldown = 8f, KickTime = 1.3f;
 
     // ---- 機関銃（頭部砲の席で切り替える。一人称で狙って連射する）
-    const float GunInterval = 0.09f, GunDamage = 0.8f, GunHeatPerShot = 0.045f, GunCool = 0.35f, GunPower = 0.15f;
+    const float GunInterval = 0.09f, GunDamage = 1.3f, GunHeatPerShot = 0.045f, GunCool = 0.35f, GunPower = 0.15f;
 
     // ---- 巨大な敵（1体だけ）
-    public const float BossMaxHp = 320f;          // 1体目の体力（2体目からは強くなる）
+    public const float BossMaxHp = 300f;          // 1体目の体力（2体目からは強くなる）
 
     // ---- 連戦：敵を倒すと、少し休んだあと次の（もっと強い）敵が出てくる。何体倒せたかを競う
     public const float NextWaveDelay = 8f;        // 倒してから次の敵が出るまで（秒）
-    const float WaveHpGrow = 0.25f;               // 1体ごとに体力 +25%
+    const float WaveHpGrow = 0.15f;               // 1体ごとに体力 +15%
     const float WaveDamageGrow = 0.15f;           // 1体ごとに攻撃力 +15%
     const float WaveRepair = 30f;                 // 倒したごほうびに装甲を回復
     public const float BossRadius = 11f;           // 当たり判定の半径（m）
@@ -85,7 +85,7 @@ public class RobotState : NetworkBehaviour
     // ---- ロケットパンチ（腕の席から発射して、拳を飛行機のように操縦する）
     // 一度きりの捨て身の大技：飛ばした腕は戻らず（その試合のあいだ腕がない）、撃った人はその試合を観戦するだけになる
     public const float RocketSpeed = 46f, RocketFlightTime = 8f;
-    const float RocketDamage = 80f, RocketPower = 10f;
+    const float RocketDamage = 100f, RocketPower = 10f;
     const float RocketTurn = 1.5f, RocketClimb = 0.9f;
     public const int RocketDocked = 0, RocketFlying = 1, RocketLost = 3;
 
@@ -96,7 +96,7 @@ public class RobotState : NetworkBehaviour
     // ---- 必殺技（胸のビーム）
     public const float SpecialMax = 100f;          // ゲージの満タン
     public const float SpecialChargeTime = 2.2f;   // 撃つ前のため（見た目と合わせる）
-    const float SpecialDamage = 70f, SpecialLength = 230f, SpecialWidth = 7f;
+    const float SpecialDamage = 90f, SpecialLength = 230f, SpecialWidth = 7f;
 
     // ---- 全員に配る状態
     public NetworkVariable<Vector2> Pos = new NetworkVariable<Vector2>();
@@ -661,16 +661,37 @@ public class RobotState : NetworkBehaviour
         SetArmEnergy(k, ArmEnergy(k) + ArmChargePerPress);
     }
 
+    const float PunchStandoff = 26f;   // 敵が止まる距離（パンチが届く距離より内側）
+
+    /// <summary>腕 k を aim の向きに伸ばしたときの拳の位置（メートル）</summary>
+    public Vector2 FistPoint(int k, float aim)
+    {
+        float reach = 8.4f * TitanScale, shoulder = 3.75f * TitanScale;
+        return LocalToWorld((k == 0 ? -1f : 1f) * shoulder + Mathf.Sin(aim) * reach, Mathf.Cos(aim) * reach);
+    }
+
+    /// <summary>
+    /// そのパンチが敵に届くか。肩から拳までの腕の通り道のどこかが敵の体に触れれば当たり。
+    /// 操作盤の「敵が射程内！」も同じ計算を使う（表示と当たり判定がずれないように）
+    /// </summary>
+    public bool PunchReaches(int k, float aim, int kind)
+    {
+        if (!BossAlive) return false;
+        float shoulder = 3.75f * TitanScale;
+        var sh = LocalToWorld((k == 0 ? -1f : 1f) * shoulder, 0f);
+        var fist = FistPoint(k, aim);
+        float slack = kind == PunchHook ? 10f : 6f;   // フックは横から振るので当たりやすい
+        var seg = fist - sh;
+        float t = Mathf.Clamp01(Vector2.Dot(BossPos.Value - sh, seg) / Mathf.Max(0.01f, seg.sqrMagnitude));
+        return Vector2.Distance(BossPos.Value, sh + seg * t) < BossRadius + slack;
+    }
+
     void PunchHit(int k, float aim)
     {
-        int side = k == 0 ? -1 : 1;
         int kind = m_PunchKind[k];
-        // 肩の関節から、腕を前に伸ばしたときの拳の位置（大きさに合わせて拡大）
-        float reach = 8.4f * TitanScale, shoulder = 3.75f * TitanScale;
-        var fist = LocalToWorld(side * shoulder + Mathf.Sin(aim) * reach, Mathf.Cos(aim) * reach);
-        float slack = kind == PunchHook ? 9f : 4f;   // フックは横から振るので当たりやすい
+        var fist = FistPoint(k, aim);
         CrushBuildings(fist, 5f);   // 拳の先のビルは一撃で崩れる
-        if (!BossAlive || Vector2.Distance(BossPos.Value, fist) >= BossRadius + slack) return;
+        if (!PunchReaches(k, aim, kind)) return;
 
         float dmg = PunchDamage[kind];
         string label = PunchNames[kind];
@@ -681,7 +702,8 @@ public class RobotState : NetworkBehaviour
         dmg = RegisterHit(dmg, k, ref label);
         var at = new Vector3(fist.x, 15.4f * TitanScale, fist.y);
         BoomFxRpc(at, kind == PunchJab ? 0.9f : m_PunchCrit[k] || kind == PunchUpper ? 2.4f : 1.6f, new Color(1f, 0.82f, 0.25f));
-        PopupFxRpc(at + Vector3.up * 6f, Combo.Value >= 2 ? $"{label}　{Combo.Value}コンボ" : label, kind == PunchUpper || m_PunchCrit[k] || label != PunchNames[kind] ? 1 : 0);
+        string shown = $"{label} {Mathf.RoundToInt(dmg * (BossStun.Value > 0f ? StunDamageMul : 1f))}" + (Combo.Value >= 2 ? $"　{Combo.Value}コンボ" : "");
+        PopupFxRpc(at + Vector3.up * 6f, shown, kind == PunchUpper || m_PunchCrit[k] || label != PunchNames[kind] ? 1 : 0);
         if (kind == PunchUpper) Knock(0.35f);    // アッパー：少し後ろへ浮かせる
         DamageBoss(dmg);
     }
@@ -741,7 +763,7 @@ public class RobotState : NetworkBehaviour
         if (BossAction.Value != BossIdle && BossAction.Value != BossMega) EndBossAction();
         var at = new Vector3(foot.x, 6f * TitanScale, foot.y);
         BoomFxRpc(at, 3f, new Color(1f, 0.7f, 0.3f));
-        PopupFxRpc(at + Vector3.up * 12f, label, 1);
+        PopupFxRpc(at + Vector3.up * 12f, $"{label} {Mathf.RoundToInt(dmg * (BossStun.Value > 0f ? StunDamageMul : 1f))}", 1);
         Knock(1f);
         DamageBoss(dmg);
     }
@@ -916,7 +938,7 @@ public class RobotState : NetworkBehaviour
             bolt.Life -= dt;
             if (BossAlive && Vector2.Distance(BossPos.Value, bolt.P) < BossRadius)
             {
-                DamageBoss(1.5f);
+                DamageBoss(2f);
                 bolt.Life = 0f;
                 BoomFxRpc(new Vector3(bolt.P.x, 26f, bolt.P.y), 0.5f, new Color(0.56f, 0.96f, 1f));
             }
@@ -1034,7 +1056,7 @@ public class RobotState : NetworkBehaviour
 
         // 移動：タイタンのほうを向いて、ゆっくり歩いて近づく
         BossYaw.Value = Mathf.MoveTowardsAngle(BossYaw.Value * Mathf.Rad2Deg, want * Mathf.Rad2Deg, BossTurnSpeed * Mathf.Rad2Deg * dt) * Mathf.Deg2Rad;
-        float speed = dist > BossReach - 6f ? BossWalkSpeed : 0f;
+        float speed = dist > PunchStandoff ? BossWalkSpeed : 0f;   // パンチが届くところまで近づいてくる
         var fwd = new Vector2(Mathf.Sin(BossYaw.Value), Mathf.Cos(BossYaw.Value));
         var nb = bp + fwd * speed * dt;
         if (Vector2.Distance(nb, Pos.Value) > BossRadius + ExteriorWorld.RobotRadius && Mathf.Abs(nb.x) < ExteriorWorld.Bounds && Mathf.Abs(nb.y) < ExteriorWorld.Bounds) bp = nb;
